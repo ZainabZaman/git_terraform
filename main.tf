@@ -27,7 +27,7 @@ resource "azurerm_service_plan" "plan" {
 }
 
 resource "azurerm_key_vault" "kv" {
-  name                = "fastapikv12345"
+  name                = "fastapikv123"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   tenant_id           = data.azurerm_client_config.current.tenant_id
