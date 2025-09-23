@@ -39,7 +39,7 @@ jobs:
       - name: Terraform Import App Service Plan
         run: |
           set +e
-          terraform import azurerm_service_plan.asp \
+          terraform import azurerm_service_plan.plan \
             /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Web/serverfarms/fastapi-plan || true
           set -e
         env:
@@ -48,7 +48,7 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      # Import Key Vault (if it already exists)
+            # Import Key Vault (if it already exists)
       - name: Terraform Import Key Vault
         run: |
           set +e
@@ -61,18 +61,18 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      # # Import Web App (if it already exists)
-      # - name: Terraform Import Web App
-      #   run: |
-      #     set +e
-      #     terraform import azurerm_linux_web_app.app \
-      #       /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Web/sites/fastapi-app-service || true
-      #     set -e
-      #   env:
-      #     ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-      #     ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-      #     ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-      #     ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+      # Import Key Vault Access Policy (if it already exists)
+      - name: Terraform Import Key Vault Access Policy
+        run: |
+          set +e
+          terraform import azurerm_key_vault_access_policy.policy \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.KeyVault/vaults/fastapikv123/objectId/${{ fromJson(secrets.AZURE_CREDENTIALS).clientObjectId }} || true
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
       - name: Terraform Apply
         run: terraform apply -auto-approve

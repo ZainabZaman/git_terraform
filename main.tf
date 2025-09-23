@@ -46,6 +46,8 @@ resource "azurerm_key_vault_secret" "new_secret" {
   name         = "new-secret"
   value        = "super-secret-value"
   key_vault_id = azurerm_key_vault.kv.id
+
+  depends_on = [azurerm_key_vault_access_policy.policy]
 }
 
 resource "azurerm_linux_web_app" "app" {
