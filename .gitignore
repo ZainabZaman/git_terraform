@@ -1,0 +1,7 @@
+# Terraform files to ignore
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
+
+# Azure credentials (secrets)
+azure_credentials.json
