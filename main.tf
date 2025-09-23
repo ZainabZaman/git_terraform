@@ -56,7 +56,6 @@ resource "random_string" "suffix" {
   special = false
 }
 
-
 resource "azurerm_linux_web_app" "app" {
   name                = "fastapi-app-service-${random_string.suffix.result}"
   location            = azurerm_resource_group.rg.location
@@ -78,6 +77,7 @@ resource "azurerm_linux_web_app" "app" {
 output "app_service_url" {
   value = azurerm_linux_web_app.app.default_hostname
 }
+
 output "app_service_name" {
   value = azurerm_linux_web_app.app.name
 }
