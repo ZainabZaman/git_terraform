@@ -26,8 +26,13 @@ resource "azurerm_service_plan" "plan" {
   os_type             = "Linux"
 }
 
+resource "random_integer" "suffix" {
+  min = 10000
+  max = 99999
+}
+
 resource "azurerm_key_vault" "kv" {
-  name                = "fastapikv12345"
+  name                = "fastapikv${random_integer.suffix.result}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   tenant_id           = data.azurerm_client_config.current.tenant_id
