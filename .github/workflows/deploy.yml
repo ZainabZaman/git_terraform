@@ -18,6 +18,8 @@ jobs:
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_wrapper: false  # This is the key fix
 
       - name: Terraform Init
         run: terraform init
@@ -45,7 +47,6 @@ jobs:
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-
 
       - name: Terraform Import Key Vault
         run: |
@@ -91,7 +92,6 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-
       - name: Terraform Plan
         run: terraform plan
         env:
@@ -99,7 +99,6 @@ jobs:
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-
 
       - name: Terraform Apply
         run: terraform apply -auto-approve
@@ -109,15 +108,15 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Terraform Output
+      - name: Get App Service Name
         run: |
-          APP_SERVICE_NAME=$(terraform output -raw app_service_name | tr -d '\r\n')
+          APP_SERVICE_NAME=$(terraform output -raw app_service_name)
           echo "APP_SERVICE_NAME=$APP_SERVICE_NAME" >> $GITHUB_ENV
+          echo "App Service Name: $APP_SERVICE_NAME"
 
       - name: Azure WebApp Deploy
         uses: azure/webapps-deploy@v2
         with:
           app-name: ${{ env.APP_SERVICE_NAME }}
           slot-name: production
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: .
