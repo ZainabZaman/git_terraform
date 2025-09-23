@@ -110,9 +110,8 @@ jobs:
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
       - name: Terraform Output
-        id: tf_output
         run: |
-          APP_SERVICE_NAME=$(terraform output -raw app_service_name 2>/dev/null | head -n 1)
+          APP_SERVICE_NAME=$(terraform output -raw app_service_name | tr -d '\r\n')
           echo "APP_SERVICE_NAME=$APP_SERVICE_NAME" >> $GITHUB_ENV
 
       - name: Azure WebApp Deploy
