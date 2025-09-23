@@ -22,8 +22,12 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
-      - name: Terraform Destroy (ignore errors)
-        run: terraform destroy -auto-approve || true
+      - name: Terraform Import Resource Group
+        run: |
+          set +e
+          terraform import azurerm_resource_group.rg \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg || true
+          set -e
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
