@@ -66,6 +66,7 @@ resource "azurerm_linux_web_app" "app" {
     application_stack {
       python_version = "3.9"
     }
+    app_command_line = "gunicorn -k uvicorn.workers.UvicornWorker main:app --bind=0.0.0.0"
   }
 
   app_settings = {
