@@ -116,7 +116,7 @@ jobs:
       - name: Terraform Output
         id: tf_output
         run: |
-          APP_SERVICE_NAME=$(terraform output -json | jq -r .app_service_name.value)
+          APP_SERVICE_NAME=$(terraform output -raw app_service_name)
           echo "app_service_name=$APP_SERVICE_NAME" >> $GITHUB_ENV
 
       - name: Azure WebApp Deploy
