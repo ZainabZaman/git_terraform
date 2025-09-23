@@ -66,17 +66,34 @@ resource "azurerm_linux_web_app" "app" {
     application_stack {
       python_version = "3.9"
     }
-    app_command_line = "gunicorn -k uvicorn.workers.UvicornWorker main:app --bind=0.0.0.0"
+
+    # Set the startup command for FastAPI
+    app_command_line = "python -m uvicorn main:app --host 0.0.0.0 --port 8000"
   }
 
   app_settings = {
-    "WEBSITES_PORT" = "8000"
-    "MY_SECRET"     = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.new_secret.id})"
+    "WEBSITES_PORT"                    = "8000"
+    "MY_SECRET"                       = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.new_secret.id})"
+    "SCM_DO_BUILD_DURING_DEPLOYMENT" = "true"
+    "ENABLE_ORYX_BUILD"              = "true"
+  }
+
+  identity {
+    type = "SystemAssigned"
   }
 }
 
+# Grant the App Service access to Key Vault
+resource "azurerm_key_vault_access_policy" "app_policy" {
+  key_vault_id = azurerm_key_vault.kv.id
+  tenant_id    = azurerm_linux_web_app.app.identity[0].tenant_id
+  object_id    = azurerm_linux_web_app.app.identity[0].principal_id
+
+  secret_permissions = ["Get", "List"]
+}
+
 output "app_service_url" {
-  value = azurerm_linux_web_app.app.default_hostname
+  value = "https://${azurerm_linux_web_app.app.default_hostname}"
 }
 
 output "app_service_name" {
