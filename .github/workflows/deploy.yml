@@ -127,7 +127,7 @@ jobs:
       - name: Create startup command file
         run: |
           echo "#!/bin/bash" > startup.sh
-          echo "python -m uvicorn main:app --host 0.0.0.0 --port 8000" >> startup.sh
+          echo "docker compose up --build" >> startup.sh
           chmod +x startup.sh
 
       - name: Azure WebApp Deploy
