@@ -50,6 +50,45 @@ resource "azurerm_key_vault_secret" "new_secret" {
   depends_on = [azurerm_key_vault_access_policy.policy]
 }
 
+resource "random_string" "suffix" {
+  length  = 6
+  upper   = false
+  special = false
+}
+
+resource "azurerm_linux_web_app" "app" {
+  name                = "fastapi-app-service-${random_string.suffix.result}"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  service_plan_id     = azurerm_service_plan.plan.id
+
+  site_config {
+    application_stack {
+      python_version = "3.9"
+    }
+
+    app_command_line = "python -m uvicorn main:app --host 0.0.0.0 --port 8002"
+  }
+
+  app_settings = {
+    "WEBSITES_PORT"                    = "8000"
+    "MY_SECRET"                       = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.new_secret.id})"
+    "SCM_DO_BUILD_DURING_DEPLOYMENT" = "true"
+    "ENABLE_ORYX_BUILD"              = "true"
+  }
+
+  identity {
+    type = "SystemAssigned"
+  }
+}
+
+# Grant the App Service access to Key Vault
+resource "azurerm_key_vault_access_policy" "app_policy" {
+  key_vault_id = azurerm_key_vault.kv.id
+  tenant_id    = azurerm_linux_web_app.app.identity[0].tenant_id
+  object_id    = azurerm_linux_web_app.app.identity[0].principal_id
+
+  secret_permissions = ["Get", "List"]
 }
 
 # Virtual Machine
@@ -105,3 +144,14 @@ output "vm_public_ip" {
 output "ssh_command" {
   value = "ssh azureuser@${azurerm_public_ip.pip.ip_address}"
 }
+
+
+
+output "app_service_url" {
+  value = "https://${azurerm_linux_web_app.app.default_hostname}"
+}
+
+output "app_service_name" {
+  value = azurerm_linux_web_app.app.name
+}
+
