@@ -67,7 +67,7 @@ resource "azurerm_linux_web_app" "app" {
       python_version = "3.9"
     }
 
-    app_command_line = "python -m uvicorn main:app --host 0.0.0.0 --port 8002"
+    app_command_line = "python -m uvicorn main:app --host 0.0.0.0 --port 8000"
   }
 
   app_settings = {
