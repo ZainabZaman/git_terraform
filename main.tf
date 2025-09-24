@@ -39,7 +39,8 @@ resource "azurerm_public_ip" "pip" {
   name                = "terraform-test-pip"
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
-  allocation_method   = "Dynamic"
+  allocation_method   = "Static"
+  sku                = "Basic"
 }
 
 # Network Security Group
@@ -101,6 +102,10 @@ resource "azurerm_key_vault" "kv" {
   tenant_id           = data.azurerm_client_config.current.tenant_id
   sku_name            = "standard"
 
+  # Enable soft delete recovery
+  soft_delete_retention_days = 7
+  purge_protection_enabled   = false
+
   access_policy {
     tenant_id = data.azurerm_client_config.current.tenant_id
     object_id = data.azurerm_client_config.current.object_id
@@ -109,6 +114,9 @@ resource "azurerm_key_vault" "kv" {
       "Get",
       "List",
       "Set",
+      "Delete",
+      "Recover",
+      "Purge"
     ]
   }
 }
