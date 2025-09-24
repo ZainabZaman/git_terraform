@@ -50,31 +50,38 @@ resource "azurerm_key_vault_secret" "new_secret" {
   depends_on = [azurerm_key_vault_access_policy.policy]
 }
 
-resource "random_string" "suffix" {
-  length  = 6
-  upper   = false
-  special = false
 }
 
-resource "azurerm_linux_web_app" "app" {
-  name                = "fastapi-app-service-${random_string.suffix.result}"
-  location            = azurerm_resource_group.rg.location
+# Virtual Machine
+resource "azurerm_linux_virtual_machine" "vm" {
+  name                = "terraform-test"
   resource_group_name = azurerm_resource_group.rg.name
-  service_plan_id     = azurerm_service_plan.plan.id
+  location            = azurerm_resource_group.rg.location
+  size                = "Standard_B1s"
+  admin_username      = "azureuser"
 
-  site_config {
-    application_stack {
-      python_version = "3.9"
-    }
+  # Disable password authentication
+  disable_password_authentication = true
 
-    app_command_line = "python -m uvicorn main:app --host 0.0.0.0 --port 8002"
+  network_interface_ids = [
+    azurerm_network_interface.nic.id,
+  ]
+
+  admin_ssh_key {
+    username   = "azureuser"
+    public_key = file("~/.ssh/id_rsa.pub") # You'll need to create this
   }
 
-  app_settings = {
-    "WEBSITES_PORT"                    = "8000"
-    "MY_SECRET"                       = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.new_secret.id})"
-    "SCM_DO_BUILD_DURING_DEPLOYMENT" = "true"
-    "ENABLE_ORYX_BUILD"              = "true"
+  os_disk {
+    caching              = "ReadWrite"
+    storage_account_type = "Standard_LRS"
+  }
+
+  source_image_reference {
+    publisher = "Canonical"
+    offer     = "0001-com-ubuntu-server-jammy"
+    sku       = "22_04-lts"
+    version   = "latest"
   }
 
   identity {
@@ -82,19 +89,19 @@ resource "azurerm_linux_web_app" "app" {
   }
 }
 
-# Grant the App Service access to Key Vault
-resource "azurerm_key_vault_access_policy" "app_policy" {
+# Grant VM access to Key Vault
+resource "azurerm_key_vault_access_policy" "vm_policy" {
   key_vault_id = azurerm_key_vault.kv.id
-  tenant_id    = azurerm_linux_web_app.app.identity[0].tenant_id
-  object_id    = azurerm_linux_web_app.app.identity[0].principal_id
+  tenant_id    = azurerm_linux_virtual_machine.vm.identity[0].tenant_id
+  object_id    = azurerm_linux_virtual_machine.vm.identity[0].principal_id
 
   secret_permissions = ["Get", "List"]
 }
 
-output "app_service_url" {
-  value = "https://${azurerm_linux_web_app.app.default_hostname}"
+output "vm_public_ip" {
+  value = azurerm_public_ip.pip.ip_address
 }
 
-output "app_service_name" {
-  value = azurerm_linux_web_app.app.name
+output "ssh_command" {
+  value = "ssh azureuser@${azurerm_public_ip.pip.ip_address}"
 }
