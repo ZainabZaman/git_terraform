@@ -2,7 +2,7 @@ name: Deploy FastAPI to VM
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "terraform_vm_deployment" ]
 
 jobs:
   build-deploy:
