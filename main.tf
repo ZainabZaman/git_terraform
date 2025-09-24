@@ -91,6 +91,46 @@ resource "azurerm_key_vault_access_policy" "app_policy" {
   secret_permissions = ["Get", "List"]
 }
 
+# Public IP
+resource "azurerm_public_ip" "pip" {
+  name                = "fastapi-vm-ip"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  allocation_method   = "Dynamic"
+  sku                 = "Basic"
+}
+
+# Virtual Network
+resource "azurerm_virtual_network" "vnet" {
+  name                = "fastapi-vnet"
+  address_space       = ["10.0.0.0/16"]
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+}
+
+# Subnet
+resource "azurerm_subnet" "subnet" {
+  name                 = "fastapi-subnet"
+  resource_group_name  = azurerm_resource_group.rg.name
+  virtual_network_name = azurerm_virtual_network.vnet.name
+  address_prefixes     = ["10.0.1.0/24"]
+}
+
+# NIC
+resource "azurerm_network_interface" "nic" {
+  name                = "fastapi-nic"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+
+  ip_configuration {
+    name                          = "internal"
+    subnet_id                     = azurerm_subnet.subnet.id
+    private_ip_address_allocation = "Dynamic"
+    public_ip_address_id          = azurerm_public_ip.pip.id
+  }
+}
+
+
 # Virtual Machine
 resource "azurerm_linux_virtual_machine" "vm" {
   name                = "terraform-test"
@@ -144,14 +184,3 @@ output "vm_public_ip" {
 output "ssh_command" {
   value = "ssh azureuser@${azurerm_public_ip.pip.ip_address}"
 }
-
-
-
-output "app_service_url" {
-  value = "https://${azurerm_linux_web_app.app.default_hostname}"
-}
-
-output "app_service_name" {
-  value = azurerm_linux_web_app.app.name
-}
-
