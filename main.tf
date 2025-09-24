@@ -16,6 +16,10 @@ data "azurerm_client_config" "current" {}
 resource "azurerm_resource_group" "rg" {
   name     = "fastapi-rg"
   location = "East US"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "azurerm_service_plan" "plan" {
@@ -24,6 +28,10 @@ resource "azurerm_service_plan" "plan" {
   resource_group_name = azurerm_resource_group.rg.name
   sku_name            = "B1"
   os_type             = "Linux"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "azurerm_key_vault" "kv" {
