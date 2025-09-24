@@ -231,5 +231,5 @@ output "vm_public_ip" {
 }
 
 output "ssh_command" {
-  value = "ssh azureuser@${azurerm_public_ip[]count.index.pip.ip_address}"
+  value = "ssh azureuser@${azurerm_public_ip[count.index].pip.ip_address}"
 }
