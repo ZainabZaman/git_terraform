@@ -100,7 +100,15 @@ resource "azurerm_key_vault_access_policy" "app_policy" {
 }
 
 # Public IP
+# Try to fetch existing Public IP
+data "azurerm_public_ip" "existing_pip" {
+  name                = "fastapi-vm-ip"
+  resource_group_name = azurerm_resource_group.rg.name
+}
+
+# Create Public IP only if it does not exist
 resource "azurerm_public_ip" "pip" {
+  count               = try(length(data.azurerm_public_ip.existing_pip.id), 0) == 0 ? 1 : 0
   name                = "fastapi-vm-ip"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
@@ -108,13 +116,46 @@ resource "azurerm_public_ip" "pip" {
   sku                 = "Standard"
 }
 
+# Unified reference (use existing if available, otherwise new)
+output "public_ip" {
+  value = coalesce(
+    try(data.azurerm_public_ip.existing_pip.ip_address, null),
+    try(azurerm_public_ip.pip[0].ip_address, null)
+  )
+}
+
+
 # Virtual Network
+# Try to fetch existing VNet
+data "azurerm_virtual_network" "existing_vnet" {
+  name                = "fastapi-vnet-test"
+  resource_group_name = azurerm_resource_group.rg.name
+}
+
+# Create new VNet only if it doesn't exist
 resource "azurerm_virtual_network" "vnet" {
+  count               = try(length(data.azurerm_virtual_network.existing_vnet.id), 0) == 0 ? 1 : 0
   name                = "fastapi-vnet-test"
   address_space       = ["10.0.0.0/16"]
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 }
+
+# Unified reference (works whether it exists already or was created)
+output "vnet_name" {
+  value = coalesce(
+    try(data.azurerm_virtual_network.existing_vnet.name, null),
+    try(azurerm_virtual_network.vnet[0].name, null)
+  )
+}
+
+output "vnet_id" {
+  value = coalesce(
+    try(data.azurerm_virtual_network.existing_vnet.id, null),
+    try(azurerm_virtual_network.vnet[0].id, null)
+  )
+}
+
 
 # Subnet
 resource "azurerm_subnet" "subnet" {
