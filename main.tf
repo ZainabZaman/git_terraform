@@ -102,13 +102,22 @@ resource "azurerm_key_vault_access_policy" "app_policy" {
 # Public IP
 # Try to fetch existing Public IP
 data "azurerm_public_ip" "existing_pip" {
+  count               = 1
   name                = "fastapi-vm-ip"
   resource_group_name = azurerm_resource_group.rg.name
+
+  # Handle case where resource doesn't exist
+  lifecycle {
+    postcondition {
+      condition     = self.ip_address != null || self.ip_address == null
+      error_message = "Public IP lookup failed"
+    }
+  }
 }
 
 # Create Public IP only if it does not exist
 resource "azurerm_public_ip" "pip" {
-  count               = try(length(data.azurerm_public_ip.existing_pip.id), 0) == 0 ? 1 : 0
+  count               = try(data.azurerm_public_ip.existing_pip[0].id, null) != null ? 0 : 1
   name                = "fastapi-vm-ip"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
@@ -116,52 +125,48 @@ resource "azurerm_public_ip" "pip" {
   sku                 = "Standard"
 }
 
-# Unified reference (use existing if available, otherwise new)
-output "public_ip" {
-  value = coalesce(
-    try(data.azurerm_public_ip.existing_pip.ip_address, null),
-    try(azurerm_public_ip.pip[0].ip_address, null)
-  )
+# Local value to determine which IP to use
+locals {
+  public_ip_id = try(data.azurerm_public_ip.existing_pip[0].id, azurerm_public_ip.pip[0].id)
+  public_ip_address = try(data.azurerm_public_ip.existing_pip[0].ip_address, azurerm_public_ip.pip[0].ip_address)
 }
-
 
 # Virtual Network
 # Try to fetch existing VNet
 data "azurerm_virtual_network" "existing_vnet" {
+  count               = 1
   name                = "fastapi-vnet-test"
   resource_group_name = azurerm_resource_group.rg.name
+
+  # Handle case where resource doesn't exist
+  lifecycle {
+    postcondition {
+      condition     = self.id != null || self.id == null
+      error_message = "VNet lookup failed"
+    }
+  }
 }
 
 # Create new VNet only if it doesn't exist
 resource "azurerm_virtual_network" "vnet" {
-  count               = try(length(data.azurerm_virtual_network.existing_vnet.id), 0) == 0 ? 1 : 0
+  count               = try(data.azurerm_virtual_network.existing_vnet[0].id, null) != null ? 0 : 1
   name                = "fastapi-vnet-test"
   address_space       = ["10.0.0.0/16"]
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 }
 
-# Unified reference (works whether it exists already or was created)
-output "vnet_name" {
-  value = coalesce(
-    try(data.azurerm_virtual_network.existing_vnet.name, null),
-    try(azurerm_virtual_network.vnet[0].name, null)
-  )
+# Local values to determine which VNet to use
+locals {
+  vnet_name = try(data.azurerm_virtual_network.existing_vnet[0].name, azurerm_virtual_network.vnet[0].name)
+  vnet_id   = try(data.azurerm_virtual_network.existing_vnet[0].id, azurerm_virtual_network.vnet[0].id)
 }
-
-output "vnet_id" {
-  value = coalesce(
-    try(data.azurerm_virtual_network.existing_vnet.id, null),
-    try(azurerm_virtual_network.vnet[0].id, null)
-  )
-}
-
 
 # Subnet
 resource "azurerm_subnet" "subnet" {
   name                 = "fastapi-subnet"
   resource_group_name  = azurerm_resource_group.rg.name
-  virtual_network_name = azurerm_virtual_network.vnet.name
+  virtual_network_name = local.vnet_name
   address_prefixes     = ["10.0.1.0/24"]
 }
 
@@ -175,10 +180,9 @@ resource "azurerm_network_interface" "nic" {
     name                          = "internal"
     subnet_id                     = azurerm_subnet.subnet.id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.pip.id
+    public_ip_address_id          = local.public_ip_id
   }
 }
-
 
 # Virtual Machine
 resource "azurerm_linux_virtual_machine" "vm" {
@@ -226,10 +230,23 @@ resource "azurerm_key_vault_access_policy" "vm_policy" {
   secret_permissions = ["Get", "List"]
 }
 
+# Outputs
+output "public_ip" {
+  value = local.public_ip_address
+}
+
+output "vnet_name" {
+  value = local.vnet_name
+}
+
+output "vnet_id" {
+  value = local.vnet_id
+}
+
 output "vm_public_ip" {
-  value = azurerm_public_ip[count.index].pip.ip_address
+  value = local.public_ip_address
 }
 
 output "ssh_command" {
-  value = "ssh azureuser@${azurerm_public_ip[count.index].pip.ip_address}"
+  value = "ssh azureuser@${local.public_ip_address}"
 }
