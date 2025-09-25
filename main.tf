@@ -75,7 +75,7 @@ resource "azurerm_linux_web_app" "app" {
       python_version = "3.9"
     }
 
-    app_command_line = "python -m uvicorn main:app --host 0.0.0.0 --port 8000"
+    app_command_line = "python -m uvicorn main:app --host 0.0.0.0 --port 8002"
   }
 
   app_settings = {
@@ -99,39 +99,25 @@ resource "azurerm_key_vault_access_policy" "app_policy" {
   secret_permissions = ["Get", "List"]
 }
 
-# Network Security Group for VM
-resource "azurerm_network_security_group" "nsg" {
-  name                = "fastapi-nsg"
-  location            = azurerm_resource_group.rg.location
+# Public IP
+# Try to fetch existing Public IP
+data "azurerm_public_ip" "existing_pip" {
+  count               = 1
+  name                = "fastapi-vm-ip"
   resource_group_name = azurerm_resource_group.rg.name
 
-  security_rule {
-    name                       = "SSH"
-    priority                   = 1001
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "22"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
-
-  security_rule {
-    name                       = "HTTP"
-    priority                   = 1002
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "8000"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
+  # Handle case where resource doesn't exist
+  lifecycle {
+    postcondition {
+      condition     = self.ip_address != null || self.ip_address == null
+      error_message = "Public IP lookup failed"
+    }
   }
 }
 
-# Public IP
+# Create Public IP only if it does not exist
 resource "azurerm_public_ip" "pip" {
+  count               = try(data.azurerm_public_ip.existing_pip[0].id, null) != null ? 0 : 1
   name                = "fastapi-vm-ip"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
@@ -139,26 +125,49 @@ resource "azurerm_public_ip" "pip" {
   sku                 = "Standard"
 }
 
+# Local value to determine which IP to use
+locals {
+  public_ip_id = try(data.azurerm_public_ip.existing_pip[0].id, azurerm_public_ip.pip[0].id)
+  public_ip_address = try(data.azurerm_public_ip.existing_pip[0].ip_address, azurerm_public_ip.pip[0].ip_address)
+}
+
 # Virtual Network
+# Try to fetch existing VNet
+data "azurerm_virtual_network" "existing_vnet" {
+  count               = 1
+  name                = "fastapi-vnet-test"
+  resource_group_name = azurerm_resource_group.rg.name
+
+  # Handle case where resource doesn't exist
+  lifecycle {
+    postcondition {
+      condition     = self.id != null || self.id == null
+      error_message = "VNet lookup failed"
+    }
+  }
+}
+
+# Create new VNet only if it doesn't exist
 resource "azurerm_virtual_network" "vnet" {
+  count               = try(data.azurerm_virtual_network.existing_vnet[0].id, null) != null ? 0 : 1
   name                = "fastapi-vnet-test"
   address_space       = ["10.0.0.0/16"]
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 }
 
+# Local values to determine which VNet to use
+locals {
+  vnet_name = try(data.azurerm_virtual_network.existing_vnet[0].name, azurerm_virtual_network.vnet[0].name)
+  vnet_id   = try(data.azurerm_virtual_network.existing_vnet[0].id, azurerm_virtual_network.vnet[0].id)
+}
+
 # Subnet
 resource "azurerm_subnet" "subnet" {
   name                 = "fastapi-subnet"
   resource_group_name  = azurerm_resource_group.rg.name
-  virtual_network_name = azurerm_virtual_network.vnet.name
+  virtual_network_name = local.vnet_name
   address_prefixes     = ["10.0.1.0/24"]
-}
-
-# Associate NSG to Subnet
-resource "azurerm_subnet_network_security_group_association" "nsg_association" {
-  subnet_id                 = azurerm_subnet.subnet.id
-  network_security_group_id = azurerm_network_security_group.nsg.id
 }
 
 # NIC
@@ -171,7 +180,7 @@ resource "azurerm_network_interface" "nic" {
     name                          = "internal"
     subnet_id                     = azurerm_subnet.subnet.id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.pip.id
+    public_ip_address_id          = local.public_ip_id
   }
 }
 
@@ -192,7 +201,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
 
   admin_ssh_key {
     username   = "azureuser"
-    public_key = file("~/.ssh/id_rsa.pub")
+    public_key = file("~/.ssh/id_rsa.pub") # You'll need to create this
   }
 
   os_disk {
@@ -210,23 +219,6 @@ resource "azurerm_linux_virtual_machine" "vm" {
   identity {
     type = "SystemAssigned"
   }
-
-  # Custom script extension to prepare the VM
-  provisioner "remote-exec" {
-    inline = [
-      "sudo apt update",
-      "sudo systemctl enable ssh",
-      "sudo systemctl start ssh"
-    ]
-
-    connection {
-      type        = "ssh"
-      user        = "azureuser"
-      private_key = file("~/.ssh/id_rsa")
-      host        = azurerm_public_ip.pip.ip_address
-      timeout     = "5m"
-    }
-  }
 }
 
 # Grant VM access to Key Vault
@@ -240,17 +232,21 @@ resource "azurerm_key_vault_access_policy" "vm_policy" {
 
 # Outputs
 output "public_ip" {
-  value = azurerm_public_ip.pip.ip_address
+  value = local.public_ip_address
+}
+
+output "vnet_name" {
+  value = local.vnet_name
+}
+
+output "vnet_id" {
+  value = local.vnet_id
 }
 
 output "vm_public_ip" {
-  value = azurerm_public_ip.pip.ip_address
+  value = local.public_ip_address
 }
 
 output "ssh_command" {
-  value = "ssh azureuser@${azurerm_public_ip.pip.ip_address}"
-}
-
-output "api_url" {
-  value = "http://${azurerm_public_ip.pip.ip_address}:8000"
+  value = "ssh azureuser@${local.public_ip_address}"
 }
