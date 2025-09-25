@@ -25,25 +25,132 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
-          chmod 600 ~/.ssh/id_rsa
-          chmod 644 ~/.ssh/id_rsa.pub
           cat ~/.ssh/id_rsa.pub
 
       - name: Terraform Init
         run: terraform init
 
-      - name: Terraform Import Existing Resources
+      - name: Terraform Import Resource Group
         run: |
           set +e
-          # Import existing resources
           terraform import azurerm_resource_group.rg \
             /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg || true
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
+      - name: Terraform Import App Service Plan
+        run: |
+          set +e
           terraform import azurerm_service_plan.plan \
             /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Web/serverFarms/fastapi-plan || true
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
+      - name: Terraform Import Key Vault
+        run: |
+          set +e
           terraform import azurerm_key_vault.kv \
             /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.KeyVault/vaults/fastapikv123 || true
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Get Service Principal Object ID
+        id: sp
+        run: |
+          OBJECT_ID=$(az ad sp list \
+            --filter "appId eq '${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}'" \
+            --query "[].id" -o tsv)
+          echo "object_id=$OBJECT_ID" >> $GITHUB_ENV
+
+      - name: Terraform Import Key Vault Access Policy
+        run: |
+          set +e
+          terraform import azurerm_key_vault_access_policy.policy \
+            "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.KeyVault/vaults/fastapikv123/objectId/${{ env.object_id }}" || true
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Terraform Import Key Vault Secret
+        run: |
+          set +e
+          terraform import azurerm_key_vault_secret.new_secret \
+            "https://fastapikv123.vault.azure.net/secrets/new-secret/ec20c3c8c41a43b58eacf3ab256f6a8c" || true
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Terraform Import Virtual Network
+        run: |
+          set +e
+          terraform import azurerm_virtual_network.vnet \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-test || true
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Terraform Import Subnet
+        run: |
+          set +e
+          terraform import azurerm_subnet.subnet \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-test/subnets/fastapi-subnet || true
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Terraform Import Public IP
+        run: |
+          set +e
+          terraform import azurerm_public_ip.pip \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/publicIPAddresses/fastapi-vm-ip || true
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Terraform Import Network Interface
+        run: |
+          set +e
+          terraform import azurerm_network_interface.nic \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/networkInterfaces/fastapi-nic || true
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Terraform Import Virtual Machine
+        run: |
+          set +e
+          terraform import azurerm_linux_virtual_machine.vm \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Compute/virtualMachines/terraform-test || true
           set -e
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
@@ -76,33 +183,18 @@ jobs:
       - name: Wait for VM to be ready
         run: |
           echo "Waiting for VM to be ready..."
-          sleep 120  # Increased wait time
+          sleep 60
 
-      - name: Test SSH Connection
+      - name: Setup VM and Deploy FastAPI
         run: |
-          echo "Testing SSH connection..."
-          ssh-keyscan -H $VM_IP >> ~/.ssh/known_hosts 2>/dev/null || true
+          # Add VM to known hosts
+          ssh-keyscan -H $VM_IP >> ~/.ssh/known_hosts
 
-          # Test basic connectivity
-          for i in {1..5}; do
-            if ssh -i ~/.ssh/id_rsa -o ConnectTimeout=30 -o StrictHostKeyChecking=no azureuser@$VM_IP "echo 'SSH connection successful'"; then
-              echo "SSH connection established"
-              break
-            else
-              echo "SSH attempt $i failed, retrying in 30 seconds..."
-              sleep 30
-            fi
-          done
-
-      - name: Setup VM Dependencies
-        run: |
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no azureuser@$VM_IP << 'EOF'
-            set -e
-            echo "Starting VM setup..."
-
+          # Install Azure CLI and dependencies on VM
+          ssh -i ~/.ssh/id_rsa azureuser@$VM_IP << 'EOF'
             # Update system
             sudo apt update -y
-            sudo apt install -y python3 python3-pip git curl software-properties-common
+            sudo apt install -y python3 python3-pip git screen curl
 
             # Install Azure CLI
             curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
@@ -110,102 +202,34 @@ jobs:
             # Login using VM's managed identity
             az login --identity
 
-            # Install Python dependencies
-            pip3 install --user fastapi uvicorn python-dotenv
+            # Create screen session
+            screen -dmS terraform_test_screen
 
-            echo "VM setup completed"
-          EOF
-
-      - name: Deploy FastAPI Application
-        run: |
-          # Create FastAPI app content
-          cat > main.py << 'EOF'
-          import os
-          from fastapi import FastAPI
-          from dotenv import load_dotenv
-
-          # Load environment variables
-          load_dotenv()
-
-          app = FastAPI(title="FastAPI on Azure VM", version="1.0.0")
-
-          @app.get("/")
-          async def root():
-              return {"message": "Hello from FastAPI on Azure VM!"}
-
-          @app.get("/health")
-          async def health():
-              return {"status": "healthy"}
-
-          @app.get("/secret")
-          async def get_secret():
-              secret = os.getenv("MY_SECRET", "No secret found")
-              return {"secret": secret}
-
-          if __name__ == "__main__":
-              import uvicorn
-              uvicorn.run(app, host="0.0.0.0", port=8000)
-          EOF
-
-          # Create systemd service file
-          cat > fastapi.service << 'EOF'
-          [Unit]
-          Description=FastAPI application
-          After=network.target
-
-          [Service]
-          Type=simple
-          User=azureuser
-          WorkingDirectory=/home/azureuser/app
-          Environment=PATH=/home/azureuser/.local/bin:/usr/bin:/bin
-          ExecStart=/home/azureuser/.local/bin/uvicorn main:app --host 0.0.0.0 --port 8000
-          Restart=always
-          RestartSec=10
-
-          [Install]
-          WantedBy=multi-user.target
-          EOF
-
-          # Copy files to VM and setup service
-          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no main.py azureuser@$VM_IP:~/
-          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no fastapi.service azureuser@$VM_IP:~/
-
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no azureuser@$VM_IP << 'EOF'
-            set -e
-            echo "Deploying FastAPI application..."
-
-            # Create app directory
-            mkdir -p /home/azureuser/app
-            mv main.py /home/azureuser/app/
+            # Clone repo and setup in screen
+            screen -S terraform_test_screen -X stuff $'cd /home/azureuser\n'
+            screen -S terraform_test_screen -X stuff $'git clone https://github.com/ZainabZaman/git_terraform.git\n'
+            screen -S terraform_test_screen -X stuff $'cd git_terraform\n'
 
             # Get secret from Key Vault and create .env file
             SECRET_VALUE=$(az keyvault secret show --vault-name fastapikv123 --name new-secret --query value -o tsv)
-            echo "MY_SECRET=$SECRET_VALUE" > /home/azureuser/app/.env
+            echo "MY_SECRET=$SECRET_VALUE" > .env
 
-            # Setup systemd service
-            sudo mv fastapi.service /etc/systemd/system/
-            sudo systemctl daemon-reload
-            sudo systemctl enable fastapi
-            sudo systemctl start fastapi
+            # Install Python dependencies
+            screen -S terraform_test_screen -X stuff $'pip3 install fastapi uvicorn python-dotenv\n'
 
-            echo "FastAPI deployment completed"
+            # Run FastAPI
+            screen -S terraform_test_screen -X stuff $'python3 -c "
+            import os
+            from dotenv import load_dotenv
+            load_dotenv()
+            from main import app
+            import uvicorn
+            uvicorn.run(app, host=\"0.0.0.0\", port=8000)
+            "\n'
           EOF
 
       - name: Verify Deployment
         run: |
-          echo "Waiting for FastAPI to start..."
-          sleep 30
-
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no azureuser@$VM_IP << 'EOF'
-            # Check service status
-            sudo systemctl status fastapi --no-pager
-
-            # Test API endpoints
-            echo "Testing API endpoints..."
-            curl -f http://localhost:8000/ || echo "Root endpoint failed"
-            curl -f http://localhost:8000/health || echo "Health endpoint failed"
-          EOF
-
-          echo "FastAPI is running at: http://$VM_IP:8000"
-          echo "To check service status: ssh azureuser@$VM_IP 'sudo systemctl status fastapi'"
-          echo "To view logs: ssh azureuser@$VM_IP 'sudo journalctl -u fastapi -f'"
+          echo "FastAPI should be running at: http://$VM_IP:8000"
+          echo "To connect to VM: ssh azureuser@$VM_IP"
+          echo "To attach to screen: screen -r terraform_test_screen"
