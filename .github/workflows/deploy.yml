@@ -233,6 +233,10 @@ jobs:
       - name: Get VM IP
         run: |
           VM_IP=$(terraform output -raw vm_public_ip)
+          if [ -z "$VM_IP" ] || [ "$VM_IP" = "null" ]; then
+            echo "Error: VM IP is empty or null"
+            exit 1
+          fi
           echo "VM_IP=$VM_IP" >> $GITHUB_ENV
           echo "VM IP: $VM_IP"
 
@@ -243,8 +247,28 @@ jobs:
 
       - name: Setup VM and Deploy FastAPI
         run: |
-          # Add VM to known hosts
-          ssh-keyscan -H $VM_IP >> ~/.ssh/known_hosts
+          # Verify VM_IP is set
+          if [ -z "$VM_IP" ]; then
+            echo "Error: VM_IP environment variable is not set"
+            exit 1
+          fi
+
+          echo "Connecting to VM at IP: $VM_IP"
+
+          # Add VM to known hosts with retry
+          for i in {1..5}; do
+            echo "Attempt $i: Adding VM to known hosts..."
+            if timeout 30 ssh-keyscan -H $VM_IP >> ~/.ssh/known_hosts 2>/dev/null; then
+              echo "Successfully added VM to known hosts"
+              break
+            elif [ $i -eq 5 ]; then
+              echo "Failed to add VM to known hosts after 5 attempts"
+              exit 1
+            else
+              echo "Attempt $i failed, retrying in 10 seconds..."
+              sleep 10
+            fi
+          done
 
           # Install Azure CLI and dependencies on VM
           ssh -i ~/.ssh/id_rsa azureuser@$VM_IP << 'EOF'
