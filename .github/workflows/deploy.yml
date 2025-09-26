@@ -314,61 +314,31 @@ jobs:
             screen -dmS terraform_test_screen
 
             # Clone repo and setup in screen
-            screen -S terraform_test_screen -X stuff
+            screen -S terraform_test_screen -X stuff "cd /home/azureuser\n"
+            screen -S terraform_test_screen -X stuff "git clone https://github.com/ZainabZaman/git_terraform.git\n"
+            screen -S terraform_test_screen -X stuff "cd git_terraform\n"
+
+            # Create .env file with the secret
+            echo "MY_SECRET=$SECRET_VALUE" > .env
+
+            # Install Python dependencies
+            screen -S terraform_test_screen -X stuff "pip3 install fastapi uvicorn python-dotenv\n"
+
+            # Run FastAPI
+            screen -S terraform_test_screen -X stuff "python3 -c \"
+            import os
+            from dotenv import load_dotenv
+            load_dotenv()
+            from main import app
+            import uvicorn
+            uvicorn.run(app, host=\\\"0.0.0.0\\\", port=8000)
+            \"\n"
+          EOF
 
       - name: Final Status Check
         run: |
           echo "=== Deployment Summary ==="
           echo "FastAPI should be running at: http://$VM_IP:8000"
           echo "To connect to VM: ssh azureuser@$VM_IP"
-          echo "To attach to screen: screen -r fastapi_session"
-          echo "To view logs: screen -S fastapi_session -X hardcopy /tmp/fastapi.log && cat /tmp/fastapi.log"cd /home/azureuser\n'
-            screen -S terraform_test_screen -X stuff
-
-      - name: Verify Deployment
-        run: |
-          echo "FastAPI should be running at: http://$VM_IP:8000"
-          echo "To connect to VM: ssh azureuser@$VM_IP"
-          echo "To attach to screen: screen -r terraform_test_screen"git clone https://github.com/ZainabZaman/git_terraform.git\n'
-            screen -S terraform_test_screen -X stuff
-
-      - name: Verify Deployment
-        run: |
-          echo "FastAPI should be running at: http://$VM_IP:8000"
-          echo "To connect to VM: ssh azureuser@$VM_IP"
-          echo "To attach to screen: screen -r terraform_test_screen"cd git_terraform\n'
-
-            # Create .env file with the secret
-            echo "MY_SECRET=$SECRET_VALUE" > .env
-
-            # Install Python dependencies
-            screen -S terraform_test_screen -X stuff
-
-      - name: Verify Deployment
-        run: |
-          echo "FastAPI should be running at: http://$VM_IP:8000"
-          echo "To connect to VM: ssh azureuser@$VM_IP"
-          echo "To attach to screen: screen -r terraform_test_screen"pip3 install fastapi uvicorn python-dotenv\n'
-
-            # Run FastAPI
-            screen -S terraform_test_screen -X stuff
-
-      - name: Verify Deployment
-        run: |
-          echo "FastAPI should be running at: http://$VM_IP:8000"
-          echo "To connect to VM: ssh azureuser@$VM_IP"
-          echo "To attach to screen: screen -r terraform_test_screen"python3 -c "
-            import os
-            from dotenv import load_dotenv
-            load_dotenv()
-            from main import app
-            import uvicorn
-            uvicorn.run(app, host=\"0.0.0.0\", port=8000)
-            "\n'
-          EOF
-
-      - name: Verify Deployment
-        run: |
-          echo "FastAPI should be running at: http://$VM_IP:8000"
-          echo "To connect to VM: ssh azureuser@$VM_IP"
           echo "To attach to screen: screen -r terraform_test_screen"
+          echo "To view logs: screen -S terraform_test_screen -X hardcopy /tmp/fastapi.log && cat /tmp/fastapi.log"
