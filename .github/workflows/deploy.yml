@@ -239,32 +239,6 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Terraform Import VM Role Assignment
-        run: |
-          set +e
-          # Get VM principal ID
-          VM_PRINCIPAL_ID=$(az vm identity show \
-            --resource-group fastapi-rg \
-            --name terraform-test \
-            --query principalId -o tsv)
-
-          # Check if role assignment already exists
-          EXISTING_ASSIGNMENT=$(az role assignment list \
-            --assignee $VM_PRINCIPAL_ID \
-            --role "Contributor" \
-            --scope "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}" \
-            --query "[0].id" -o tsv)
-
-          if [ ! -z "$EXISTING_ASSIGNMENT" ] && [ "$EXISTING_ASSIGNMENT" != "null" ]; then
-            terraform import azurerm_role_assignment.vm_Contributor "$EXISTING_ASSIGNMENT" || true
-          fi
-          set -e
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-
       - name: Terraform Plan
         run: terraform plan
         env:
@@ -330,26 +304,58 @@ jobs:
             # Install Azure CLI
             curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 
-            # Login using VM's managed identity
-            az login --identity
+            # Get access token using managed identity directly
+            ACCESS_TOKEN=$(curl -s -H "Metadata: true" "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net/" | python3 -c "import sys, json; print(json.load(sys.stdin)['access_token'])")
+
+            # Get secret from Key Vault using REST API
+            SECRET_VALUE=$(curl -s -H "Authorization: Bearer $ACCESS_TOKEN" "https://fastapikv123.vault.azure.net/secrets/new-secret?api-version=2016-10-01" | python3 -c "import sys, json; print(json.load(sys.stdin)['value'])")
 
             # Create screen session
             screen -dmS terraform_test_screen
 
             # Clone repo and setup in screen
-            screen -S terraform_test_screen -X stuff $'cd /home/azureuser\n'
-            screen -S terraform_test_screen -X stuff $'git clone https://github.com/ZainabZaman/git_terraform.git\n'
-            screen -S terraform_test_screen -X stuff $'cd git_terraform\n'
+            screen -S terraform_test_screen -X stuff
 
-            # Get secret from Key Vault and create .env file
-            SECRET_VALUE=$(az keyvault secret show --vault-name fastapikv123 --name new-secret --query value -o tsv)
+      - name: Verify Deployment
+        run: |
+          echo "FastAPI should be running at: http://$VM_IP:8000"
+          echo "To connect to VM: ssh azureuser@$VM_IP"
+          echo "To attach to screen: screen -r terraform_test_screen"cd /home/azureuser\n'
+            screen -S terraform_test_screen -X stuff
+
+      - name: Verify Deployment
+        run: |
+          echo "FastAPI should be running at: http://$VM_IP:8000"
+          echo "To connect to VM: ssh azureuser@$VM_IP"
+          echo "To attach to screen: screen -r terraform_test_screen"git clone https://github.com/ZainabZaman/git_terraform.git\n'
+            screen -S terraform_test_screen -X stuff
+
+      - name: Verify Deployment
+        run: |
+          echo "FastAPI should be running at: http://$VM_IP:8000"
+          echo "To connect to VM: ssh azureuser@$VM_IP"
+          echo "To attach to screen: screen -r terraform_test_screen"cd git_terraform\n'
+
+            # Create .env file with the secret
             echo "MY_SECRET=$SECRET_VALUE" > .env
 
             # Install Python dependencies
-            screen -S terraform_test_screen -X stuff $'pip3 install fastapi uvicorn python-dotenv\n'
+            screen -S terraform_test_screen -X stuff
+
+      - name: Verify Deployment
+        run: |
+          echo "FastAPI should be running at: http://$VM_IP:8000"
+          echo "To connect to VM: ssh azureuser@$VM_IP"
+          echo "To attach to screen: screen -r terraform_test_screen"pip3 install fastapi uvicorn python-dotenv\n'
 
             # Run FastAPI
-            screen -S terraform_test_screen -X stuff $'python3 -c "
+            screen -S terraform_test_screen -X stuff
+
+      - name: Verify Deployment
+        run: |
+          echo "FastAPI should be running at: http://$VM_IP:8000"
+          echo "To connect to VM: ssh azureuser@$VM_IP"
+          echo "To attach to screen: screen -r terraform_test_screen"python3 -c "
             import os
             from dotenv import load_dotenv
             load_dotenv()
