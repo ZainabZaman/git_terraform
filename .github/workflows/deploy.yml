@@ -316,11 +316,13 @@ jobs:
             # Clone repo and setup in screen
             screen -S terraform_test_screen -X stuff
 
-      - name: Verify Deployment
+      - name: Final Status Check
         run: |
+          echo "=== Deployment Summary ==="
           echo "FastAPI should be running at: http://$VM_IP:8000"
           echo "To connect to VM: ssh azureuser@$VM_IP"
-          echo "To attach to screen: screen -r terraform_test_screen"cd /home/azureuser\n'
+          echo "To attach to screen: screen -r fastapi_session"
+          echo "To view logs: screen -S fastapi_session -X hardcopy /tmp/fastapi.log && cat /tmp/fastapi.log"cd /home/azureuser\n'
             screen -S terraform_test_screen -X stuff
 
       - name: Verify Deployment
