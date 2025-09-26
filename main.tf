@@ -162,12 +162,49 @@ locals {
   vnet_id   = try(data.azurerm_virtual_network.existing_vnet[0].id, azurerm_virtual_network.vnet[0].id)
 }
 
+# Network Security Group and rule
+resource "azurerm_network_security_group" "nsg" {
+  name                = "fastapi-nsg"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+
+  security_rule {
+    name                       = "SSH"
+    priority                   = 1001
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+
+  security_rule {
+    name                       = "HTTP"
+    priority                   = 1002
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "8000"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+}
+
 # Subnet
 resource "azurerm_subnet" "subnet" {
   name                 = "fastapi-subnet"
   resource_group_name  = azurerm_resource_group.rg.name
   virtual_network_name = local.vnet_name
   address_prefixes     = ["10.0.1.0/24"]
+}
+
+# Associate Network Security Group to Subnet
+resource "azurerm_subnet_network_security_group_association" "nsg_association" {
+  subnet_id                 = azurerm_subnet.subnet.id
+  network_security_group_id = azurerm_network_security_group.nsg.id
 }
 
 # NIC

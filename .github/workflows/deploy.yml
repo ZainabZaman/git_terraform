@@ -214,6 +214,31 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
+      - name: Terraform Import Network Security Group
+        run: |
+          set +e
+          terraform import azurerm_network_security_group.nsg \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/networkSecurityGroups/fastapi-nsg || true
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Terraform Import NSG Association
+        run: |
+          set +e
+          SUBNET_ID="/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-test/subnets/fastapi-subnet"
+          terraform import azurerm_subnet_network_security_group_association.nsg_association \
+            "$SUBNET_ID" || true
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
       - name: Terraform Plan
         run: terraform plan
         env:
