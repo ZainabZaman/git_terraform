@@ -295,7 +295,7 @@ jobs:
             fi
           done
 
-          # Install Azure CLI and dependencies on VM
+          # Install dependencies and setup FastAPI
           ssh -i ~/.ssh/id_rsa azureuser@$VM_IP << 'EOF'
             # Update system
             sudo apt update -y
@@ -310,35 +310,30 @@ jobs:
             # Get secret from Key Vault using REST API
             SECRET_VALUE=$(curl -s -H "Authorization: Bearer $ACCESS_TOKEN" "https://fastapikv123.vault.azure.net/secrets/new-secret?api-version=2016-10-01" | python3 -c "import sys, json; print(json.load(sys.stdin)['value'])")
 
-            # Create screen session
-            screen -dmS terraform_test_screen
-
-            # Clone repo and setup in screen
-            screen -S terraform_test_screen -X stuff "cd /home/azureuser\n"
-            screen -S terraform_test_screen -X stuff "git clone https://github.com/ZainabZaman/git_terraform.git\n"
-            screen -S terraform_test_screen -X stuff "cd git_terraform\n"
+            # Clone repo
+            cd /home/azureuser
+            git clone https://github.com/ZainabZaman/git_terraform.git
+            cd git_terraform
 
             # Create .env file with the secret
             echo "MY_SECRET=$SECRET_VALUE" > .env
 
             # Install Python dependencies
-            screen -S terraform_test_screen -X stuff "pip3 install fastapi uvicorn python-dotenv\n"
+            pip3 install fastapi uvicorn python-dotenv
 
-            # Run FastAPI
-            screen -S terraform_test_screen -X stuff "python3 -c \"
-            import os
-            from dotenv import load_dotenv
-            load_dotenv()
-            from main import app
-            import uvicorn
-            uvicorn.run(app, host=\\\"0.0.0.0\\\", port=8000)
-            \"\n"
+            # Start FastAPI in screen session
+            screen -dmS fastapi_session bash -c 'cd /home/azureuser/git_terraform && python3 -m uvicorn main:app --host 0.0.0.0 --port 8000'
           EOF
+
+      - name: Wait for FastAPI to start
+        run: |
+          echo "Waiting for FastAPI to start..."
+          sleep 30
 
       - name: Final Status Check
         run: |
           echo "=== Deployment Summary ==="
           echo "FastAPI should be running at: http://$VM_IP:8000"
           echo "To connect to VM: ssh azureuser@$VM_IP"
-          echo "To attach to screen: screen -r terraform_test_screen"
-          echo "To view logs: screen -S terraform_test_screen -X hardcopy /tmp/fastapi.log && cat /tmp/fastapi.log"
+          echo "To attach to screen: screen -r fastapi_session"
+          echo "To view logs: screen -S fastapi_session -X hardcopy /tmp/fastapi.log && cat /tmp/fastapi.log"
