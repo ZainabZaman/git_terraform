@@ -158,6 +158,62 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
+      - name: Terraform Import VM Key Vault Access Policy
+        run: |
+          set +e
+          VM_PRINCIPAL_ID=$(az vm identity show \
+            --resource-group fastapi-rg \
+            --name terraform-test \
+            --query principalId -o tsv)
+          terraform import azurerm_key_vault_access_policy.vm_policy \
+            "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.KeyVault/vaults/fastapikv123/objectId/$VM_PRINCIPAL_ID" || true
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Terraform Import App Service
+        run: |
+          set +e
+          # Get the actual app service name (it has a random suffix)
+          APP_SERVICE_NAME=$(az webapp list \
+            --resource-group fastapi-rg \
+            --query "[?starts_with(name, 'fastapi-app-service-')].name" -o tsv | head -1)
+          if [ ! -z "$APP_SERVICE_NAME" ]; then
+            terraform import azurerm_linux_web_app.app \
+              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Web/sites/$APP_SERVICE_NAME
+          fi
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Terraform Import App Service Key Vault Access Policy
+        run: |
+          set +e
+          # Get the app service principal ID
+          APP_SERVICE_NAME=$(az webapp list \
+            --resource-group fastapi-rg \
+            --query "[?starts_with(name, 'fastapi-app-service-')].name" -o tsv | head -1)
+          if [ ! -z "$APP_SERVICE_NAME" ]; then
+            APP_PRINCIPAL_ID=$(az webapp identity show \
+              --resource-group fastapi-rg \
+              --name $APP_SERVICE_NAME \
+              --query principalId -o tsv)
+            terraform import azurerm_key_vault_access_policy.app_policy \
+              "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.KeyVault/vaults/fastapikv123/objectId/$APP_PRINCIPAL_ID"
+          fi
+          set -e
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
       - name: Terraform Plan
         run: terraform plan
         env:
