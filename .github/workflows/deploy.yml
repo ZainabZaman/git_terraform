@@ -251,12 +251,12 @@ jobs:
           # Check if role assignment already exists
           EXISTING_ASSIGNMENT=$(az role assignment list \
             --assignee $VM_PRINCIPAL_ID \
-            --role "Reader" \
+            --role "Contributor" \
             --scope "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}" \
             --query "[0].id" -o tsv)
 
           if [ ! -z "$EXISTING_ASSIGNMENT" ] && [ "$EXISTING_ASSIGNMENT" != "null" ]; then
-            terraform import azurerm_role_assignment.vm_reader "$EXISTING_ASSIGNMENT" || true
+            terraform import azurerm_role_assignment.vm_Contributor "$EXISTING_ASSIGNMENT" || true
           fi
           set -e
         env:

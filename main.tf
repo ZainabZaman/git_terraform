@@ -267,10 +267,10 @@ resource "azurerm_key_vault_access_policy" "vm_policy" {
   secret_permissions = ["Get", "List"]
 }
 
-# Grant VM Reader role at subscription level for managed identity access
-resource "azurerm_role_assignment" "vm_reader" {
+# Grant VM Contributor role at subscription level for managed identity access
+resource "azurerm_role_assignment" "vm_Contributor" {
   scope                = "/subscriptions/${data.azurerm_client_config.current.subscription_id}"
-  role_definition_name = "Reader"
+  role_definition_name = "Contributor"
   principal_id         = azurerm_linux_virtual_machine.vm.identity[0].principal_id
 }
 
