@@ -25,41 +25,50 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+          echo "SSH Public Key:"
           cat ~/.ssh/id_rsa.pub
 
       - name: Terraform Init
         run: terraform init
 
-      - name: Terraform Import Resource Group
+      - name: Check if Resource Group exists
+        id: check_rg
         run: |
-          set +e
+          if az group show --name fastapi-rg &>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Resource Group already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Resource Group does not exist, will be created"
+          fi
+
+      - name: Import Resource Group (if exists)
+        if: steps.check_rg.outputs.exists == 'true'
+        run: |
           terraform import azurerm_resource_group.rg \
             /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg || true
-          set -e
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Terraform Import App Service Plan
+      - name: Check if Key Vault exists
+        id: check_kv
         run: |
-          set +e
-          terraform import azurerm_service_plan.plan \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Web/serverFarms/fastapi-plan || true
-          set -e
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+          if az keyvault show --name fastapikv123 &>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Key Vault already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Key Vault does not exist, will be created"
+          fi
 
-      - name: Terraform Import Key Vault
+      - name: Import Key Vault (if exists)
+        if: steps.check_kv.outputs.exists == 'true'
         run: |
-          set +e
           terraform import azurerm_key_vault.kv \
             /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.KeyVault/vaults/fastapikv123 || true
-          set -e
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
@@ -73,166 +82,121 @@ jobs:
             --filter "appId eq '${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}'" \
             --query "[].id" -o tsv)
           echo "object_id=$OBJECT_ID" >> $GITHUB_ENV
+          echo "Service Principal Object ID: $OBJECT_ID"
 
-      - name: Terraform Import Key Vault Access Policy
+      - name: Import Key Vault Access Policy (if exists)
+        if: steps.check_kv.outputs.exists == 'true'
         run: |
-          set +e
           terraform import azurerm_key_vault_access_policy.policy \
             "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.KeyVault/vaults/fastapikv123/objectId/${{ env.object_id }}" || true
-          set -e
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Terraform Import Key Vault Secret
+      - name: Check and Import Virtual Network
         run: |
-          set +e
-          terraform import azurerm_key_vault_secret.new_secret \
-            "https://fastapikv123.vault.azure.net/secrets/new-secret/ec20c3c8c41a43b58eacf3ab256f6a8c" || true
-          set -e
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-
-      - name: Terraform Import Virtual Network
-        run: |
-          set +e
-          terraform import azurerm_virtual_network.vnet \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-test || true
-          set -e
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-
-      - name: Terraform Import Subnet
-        run: |
-          set +e
-          terraform import azurerm_subnet.subnet \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-test/subnets/fastapi-subnet || true
-          set -e
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-
-      - name: Terraform Import Public IP
-        run: |
-          set +e
-          terraform import azurerm_public_ip.pip \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/publicIPAddresses/fastapi-vm-ip || true
-          set -e
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-
-      - name: Terraform Import Network Interface
-        run: |
-          set +e
-          terraform import azurerm_network_interface.nic \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/networkInterfaces/fastapi-nic || true
-          set -e
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-
-      - name: Terraform Import Virtual Machine
-        run: |
-          set +e
-          terraform import azurerm_linux_virtual_machine.vm \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Compute/virtualMachines/terraform-test || true
-          set -e
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-
-      - name: Terraform Import VM Key Vault Access Policy
-        run: |
-          set +e
-          VM_PRINCIPAL_ID=$(az vm identity show \
-            --resource-group fastapi-rg \
-            --name terraform-test \
-            --query principalId -o tsv)
-          terraform import azurerm_key_vault_access_policy.vm_policy \
-            "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.KeyVault/vaults/fastapikv123/objectId/$VM_PRINCIPAL_ID" || true
-          set -e
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-
-      - name: Terraform Import App Service
-        run: |
-          set +e
-          # Get the actual app service name (it has a random suffix)
-          APP_SERVICE_NAME=$(az webapp list \
-            --resource-group fastapi-rg \
-            --query "[?starts_with(name, 'fastapi-app-service-')].name" -o tsv | head -1)
-          if [ ! -z "$APP_SERVICE_NAME" ]; then
-            terraform import azurerm_linux_web_app.app \
-              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Web/sites/$APP_SERVICE_NAME
+          if az network vnet show --resource-group fastapi-rg --name fastapi-vnet-test &>/dev/null; then
+            echo "Virtual Network exists, importing..."
+            terraform import azurerm_virtual_network.vnet \
+              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-test || true
           fi
-          set -e
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Terraform Import App Service Key Vault Access Policy
+      - name: Check and Import Subnet
         run: |
-          set +e
-          # Get the app service principal ID
-          APP_SERVICE_NAME=$(az webapp list \
-            --resource-group fastapi-rg \
-            --query "[?starts_with(name, 'fastapi-app-service-')].name" -o tsv | head -1)
-          if [ ! -z "$APP_SERVICE_NAME" ]; then
-            APP_PRINCIPAL_ID=$(az webapp identity show \
+          if az network vnet subnet show --resource-group fastapi-rg --vnet-name fastapi-vnet-test --name fastapi-subnet &>/dev/null; then
+            echo "Subnet exists, importing..."
+            terraform import azurerm_subnet.subnet \
+              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-test/subnets/fastapi-subnet || true
+          fi
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Check and Import Public IP
+        run: |
+          if az network public-ip show --resource-group fastapi-rg --name fastapi-vm-ip &>/dev/null; then
+            echo "Public IP exists, importing..."
+            terraform import azurerm_public_ip.pip \
+              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/publicIPAddresses/fastapi-vm-ip || true
+          fi
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Check and Import Network Security Group
+        run: |
+          if az network nsg show --resource-group fastapi-rg --name fastapi-nsg &>/dev/null; then
+            echo "NSG exists, importing..."
+            terraform import azurerm_network_security_group.nsg \
+              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/networkSecurityGroups/fastapi-nsg || true
+          fi
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Check and Import Network Interface
+        run: |
+          if az network nic show --resource-group fastapi-rg --name fastapi-nic &>/dev/null; then
+            echo "NIC exists, importing..."
+            terraform import azurerm_network_interface.nic \
+              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/networkInterfaces/fastapi-nic || true
+          fi
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Check and Import Virtual Machine
+        run: |
+          if az vm show --resource-group fastapi-rg --name terraform-test &>/dev/null; then
+            echo "VM exists, importing..."
+            terraform import azurerm_linux_virtual_machine.vm \
+              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Compute/virtualMachines/terraform-test || true
+          fi
+        env:
+          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
+          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
+          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
+          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+
+      - name: Check and Import VM Key Vault Access Policy
+        run: |
+          if az vm show --resource-group fastapi-rg --name terraform-test &>/dev/null; then
+            VM_PRINCIPAL_ID=$(az vm identity show \
               --resource-group fastapi-rg \
-              --name $APP_SERVICE_NAME \
+              --name terraform-test \
               --query principalId -o tsv)
-            terraform import azurerm_key_vault_access_policy.app_policy \
-              "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.KeyVault/vaults/fastapikv123/objectId/$APP_PRINCIPAL_ID"
+            if [ ! -z "$VM_PRINCIPAL_ID" ]; then
+              terraform import azurerm_key_vault_access_policy.vm_policy \
+                "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.KeyVault/vaults/fastapikv123/objectId/$VM_PRINCIPAL_ID" || true
+            fi
           fi
-          set -e
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Terraform Import Network Security Group
+      - name: Check and Import NSG Association
         run: |
-          set +e
-          terraform import azurerm_network_security_group.nsg \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/networkSecurityGroups/fastapi-nsg || true
-          set -e
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-
-      - name: Terraform Import NSG Association
-        run: |
-          set +e
-          SUBNET_ID="/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-test/subnets/fastapi-subnet"
-          terraform import azurerm_subnet_network_security_group_association.nsg_association \
-            "$SUBNET_ID" || true
-          set -e
+          if az network vnet subnet show --resource-group fastapi-rg --vnet-name fastapi-vnet-test --name fastapi-subnet &>/dev/null; then
+            SUBNET_ID="/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-test/subnets/fastapi-subnet"
+            terraform import azurerm_subnet_network_security_group_association.nsg_association "$SUBNET_ID" || true
+          fi
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
@@ -255,85 +219,65 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Get VM IP
+      - name: Get Key Vault Credentials
+        id: kv_creds
+        run: |
+          KV_URI=$(terraform output -raw key_vault_uri)
+          KV_NAME=$(terraform output -raw key_vault_name)
+          echo "key_vault_uri=$KV_URI" >> $GITHUB_OUTPUT
+          echo "key_vault_name=$KV_NAME" >> $GITHUB_OUTPUT
+
+      - name: Get VM Connection Details
+        id: vm_details
         run: |
           VM_IP=$(terraform output -raw vm_public_ip)
-          if [ -z "$VM_IP" ] || [ "$VM_IP" = "null" ]; then
-            echo "Error: VM IP is empty or null"
-            exit 1
-          fi
-          echo "VM_IP=$VM_IP" >> $GITHUB_ENV
-          echo "VM IP: $VM_IP"
+          echo "vm_ip=$VM_IP" >> $GITHUB_OUTPUT
 
-      - name: Wait for VM to be ready
+      - name: Save SSH Private Key
         run: |
-          echo "Waiting for VM to be ready..."
-          sleep 60
+          echo "Saving SSH private key to artifact..."
+          cp ~/.ssh/id_rsa ./ssh_private_key.pem
+          chmod 600 ./ssh_private_key.pem
 
-      - name: Setup VM and Deploy FastAPI
+      - name: Upload SSH Private Key
+        uses: actions/upload-artifact@v3
+        with:
+          name: ssh-credentials
+          path: ./ssh_private_key.pem
+          retention-days: 7
+
+      - name: Display Credentials Summary
         run: |
-          # Verify VM_IP is set
-          if [ -z "$VM_IP" ]; then
-            echo "Error: VM_IP environment variable is not set"
-            exit 1
-          fi
-
-          echo "Connecting to VM at IP: $VM_IP"
-
-          # Add VM to known hosts with retry
-          for i in {1..5}; do
-            echo "Attempt $i: Adding VM to known hosts..."
-            if timeout 30 ssh-keyscan -H $VM_IP >> ~/.ssh/known_hosts 2>/dev/null; then
-              echo "Successfully added VM to known hosts"
-              break
-            elif [ $i -eq 5 ]; then
-              echo "Failed to add VM to known hosts after 5 attempts"
-              exit 1
-            else
-              echo "Attempt $i failed, retrying in 10 seconds..."
-              sleep 10
-            fi
-          done
-
-          # Install dependencies and setup FastAPI
-          ssh -i ~/.ssh/id_rsa azureuser@$VM_IP << 'EOF'
-            # Update system
-            sudo apt update -y
-            sudo apt install -y python3 python3-pip git screen curl
-
-            # Install Azure CLI
-            curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-
-            # Get access token using managed identity directly
-            ACCESS_TOKEN=$(curl -s -H "Metadata: true" "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net/" | python3 -c "import sys, json; print(json.load(sys.stdin)['access_token'])")
-
-            # Get secret from Key Vault using REST API
-            SECRET_VALUE=$(curl -s -H "Authorization: Bearer $ACCESS_TOKEN" "https://fastapikv123.vault.azure.net/secrets/new-secret?api-version=2016-10-01" | python3 -c "import sys, json; print(json.load(sys.stdin)['value'])")
-
-            # Clone repo
-            cd /home/azureuser
-            git clone https://github.com/ZainabZaman/git_terraform.git
-            cd git_terraform
-
-            # Create .env file with the secret
-            echo "MY_SECRET=$SECRET_VALUE" > .env
-
-            # Install Python dependencies
-            pip3 install fastapi uvicorn python-dotenv
-
-            # Start FastAPI in screen session
-            screen -dmS fastapi_session bash -c 'cd /home/azureuser/git_terraform && python3 -m uvicorn main:app --host 0.0.0.0 --port 8000'
-          EOF
-
-      - name: Wait for FastAPI to start
-        run: |
-          echo "Waiting for FastAPI to start..."
-          sleep 30
-
-      - name: Final Status Check
-        run: |
-          echo "=== Deployment Summary ==="
-          echo "FastAPI should be running at: http://$VM_IP:8000"
-          echo "To connect to VM: ssh azureuser@$VM_IP"
-          echo "To attach to screen: screen -r fastapi_session"
-          echo "To view logs: screen -S fastapi_session -X hardcopy /tmp/fastapi.log && cat /tmp/fastapi.log"
+          echo "================================================"
+          echo "           DEPLOYMENT CREDENTIALS"
+          echo "================================================"
+          echo ""
+          echo "📦 RESOURCE GROUP:"
+          echo "   Name: fastapi-rg"
+          echo "   Location: East Asia"
+          echo "   Status: ${{ steps.check_rg.outputs.exists == 'true' && 'Already Existed' || 'Newly Created' }}"
+          echo ""
+          echo "🔐 KEY VAULT CREDENTIALS:"
+          echo "   Name: ${{ steps.kv_creds.outputs.key_vault_name }}"
+          echo "   URI: ${{ steps.kv_creds.outputs.key_vault_uri }}"
+          echo "   Status: ${{ steps.check_kv.outputs.exists == 'true' && 'Already Existed' || 'Newly Created' }}"
+          echo ""
+          echo "🖥️  VIRTUAL MACHINE ACCESS:"
+          echo "   IP Address: ${{ steps.vm_details.outputs.vm_ip }}"
+          echo "   Username: azureuser"
+          echo "   SSH Command: ssh -i ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.vm_ip }}"
+          echo ""
+          echo "📄 SSH PRIVATE KEY:"
+          echo "   Download from: Actions > Artifacts > ssh-credentials"
+          echo "   File: ssh_private_key.pem"
+          echo ""
+          echo "⚙️  USAGE INSTRUCTIONS:"
+          echo "   1. Download the SSH private key from artifacts"
+          echo "   2. Set permissions: chmod 600 ssh_private_key.pem"
+          echo "   3. Connect to VM: ssh -i ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.vm_ip }}"
+          echo ""
+          echo "🔑 KEY VAULT AUTHENTICATION:"
+          echo "   Use Azure CLI: az login"
+          echo "   Access secrets: az keyvault secret show --vault-name ${{ steps.kv_creds.outputs.key_vault_name }} --name <secret-name>"
+          echo ""
+          echo "================================================"

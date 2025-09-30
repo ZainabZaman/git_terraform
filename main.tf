@@ -13,156 +13,44 @@ provider "azurerm" {
 
 data "azurerm_client_config" "current" {}
 
+# Resource Group - will be created if it doesn't exist
 resource "azurerm_resource_group" "rg" {
   name     = "fastapi-rg"
   location = "East Asia"
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 }
 
-resource "azurerm_service_plan" "plan" {
-  name                = "fastapi-plan"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-  sku_name            = "B1"
-  os_type             = "Linux"
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
+# Key Vault - will be created if it doesn't exist
 resource "azurerm_key_vault" "kv" {
   name                = "fastapikv123"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   tenant_id           = data.azurerm_client_config.current.tenant_id
   sku_name            = "standard"
+
+  # Enable soft delete and purge protection for production
+  soft_delete_retention_days = 7
+  purge_protection_enabled   = false
+
+  lifecycle {
+    prevent_destroy = false
+  }
 }
 
+# Key Vault Access Policy for Service Principal
 resource "azurerm_key_vault_access_policy" "policy" {
   key_vault_id = azurerm_key_vault.kv.id
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = data.azurerm_client_config.current.object_id
 
-  secret_permissions = ["Get", "List", "Set"]
+  secret_permissions = ["Get", "List", "Set", "Delete", "Recover", "Backup", "Restore", "Purge"]
+  key_permissions    = ["Get", "List", "Create", "Delete"]
 }
 
-resource "azurerm_key_vault_secret" "new_secret" {
-  name         = "new-secret"
-  value        = "super-secret-value"
-  key_vault_id = azurerm_key_vault.kv.id
-
-  depends_on = [azurerm_key_vault_access_policy.policy]
-}
-
-resource "random_string" "suffix" {
-  length  = 6
-  upper   = false
-  special = false
-}
-
-resource "azurerm_linux_web_app" "app" {
-  name                = "fastapi-app-service-${random_string.suffix.result}"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-  service_plan_id     = azurerm_service_plan.plan.id
-
-  site_config {
-    application_stack {
-      python_version = "3.9"
-    }
-
-    app_command_line = "python -m uvicorn main:app --host 0.0.0.0 --port 8002"
-  }
-
-  app_settings = {
-    "WEBSITES_PORT"                    = "8000"
-    "MY_SECRET"                       = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.new_secret.id})"
-    "SCM_DO_BUILD_DURING_DEPLOYMENT" = "true"
-    "ENABLE_ORYX_BUILD"              = "true"
-  }
-
-  identity {
-    type = "SystemAssigned"
-  }
-}
-
-# Grant the App Service access to Key Vault
-resource "azurerm_key_vault_access_policy" "app_policy" {
-  key_vault_id = azurerm_key_vault.kv.id
-  tenant_id    = azurerm_linux_web_app.app.identity[0].tenant_id
-  object_id    = azurerm_linux_web_app.app.identity[0].principal_id
-
-  secret_permissions = ["Get", "List"]
-}
-
-# Public IP
-# Try to fetch existing Public IP
-data "azurerm_public_ip" "existing_pip" {
-  count               = 1
-  name                = "fastapi-vm-ip"
-  resource_group_name = azurerm_resource_group.rg.name
-
-  # Handle case where resource doesn't exist
-  lifecycle {
-    postcondition {
-      condition     = self.ip_address != null || self.ip_address == null
-      error_message = "Public IP lookup failed"
-    }
-  }
-}
-
-# Create Public IP only if it does not exist
-resource "azurerm_public_ip" "pip" {
-  count               = try(data.azurerm_public_ip.existing_pip[0].id, null) != null ? 0 : 1
-  name                = "fastapi-vm-ip"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-  allocation_method   = "Static"
-  sku                 = "Standard"
-}
-
-# Local value to determine which IP to use
-locals {
-  public_ip_id = try(data.azurerm_public_ip.existing_pip[0].id, azurerm_public_ip.pip[0].id)
-  public_ip_address = try(data.azurerm_public_ip.existing_pip[0].ip_address, azurerm_public_ip.pip[0].ip_address)
-}
-
-# Virtual Network
-# Try to fetch existing VNet
-data "azurerm_virtual_network" "existing_vnet" {
-  count               = 1
-  name                = "fastapi-vnet-test"
-  resource_group_name = azurerm_resource_group.rg.name
-
-  # Handle case where resource doesn't exist
-  lifecycle {
-    postcondition {
-      condition     = self.id != null || self.id == null
-      error_message = "VNet lookup failed"
-    }
-  }
-}
-
-# Create new VNet only if it doesn't exist
-resource "azurerm_virtual_network" "vnet" {
-  count               = try(data.azurerm_virtual_network.existing_vnet[0].id, null) != null ? 0 : 1
-  name                = "fastapi-vnet-test"
-  address_space       = ["10.0.0.0/16"]
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-}
-
-# Local values to determine which VNet to use
-locals {
-  vnet_name = try(data.azurerm_virtual_network.existing_vnet[0].name, azurerm_virtual_network.vnet[0].name)
-  vnet_id   = try(data.azurerm_virtual_network.existing_vnet[0].id, azurerm_virtual_network.vnet[0].id)
-}
-
-# Network Security Group and rule
+# Network Security Group
 resource "azurerm_network_security_group" "nsg" {
   name                = "fastapi-nsg"
   location            = azurerm_resource_group.rg.location
@@ -193,11 +81,19 @@ resource "azurerm_network_security_group" "nsg" {
   }
 }
 
+# Virtual Network
+resource "azurerm_virtual_network" "vnet" {
+  name                = "fastapi-vnet-test"
+  address_space       = ["10.0.0.0/16"]
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+}
+
 # Subnet
 resource "azurerm_subnet" "subnet" {
   name                 = "fastapi-subnet"
   resource_group_name  = azurerm_resource_group.rg.name
-  virtual_network_name = local.vnet_name
+  virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = ["10.0.1.0/24"]
 }
 
@@ -207,7 +103,16 @@ resource "azurerm_subnet_network_security_group_association" "nsg_association" {
   network_security_group_id = azurerm_network_security_group.nsg.id
 }
 
-# NIC
+# Public IP
+resource "azurerm_public_ip" "pip" {
+  name                = "fastapi-vm-ip"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+}
+
+# Network Interface
 resource "azurerm_network_interface" "nic" {
   name                = "fastapi-nic"
   location            = azurerm_resource_group.rg.location
@@ -217,7 +122,7 @@ resource "azurerm_network_interface" "nic" {
     name                          = "internal"
     subnet_id                     = azurerm_subnet.subnet.id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = local.public_ip_id
+    public_ip_address_id          = azurerm_public_ip.pip.id
   }
 }
 
@@ -238,7 +143,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
 
   admin_ssh_key {
     username   = "azureuser"
-    public_key = file("~/.ssh/id_rsa.pub") # You'll need to create this
+    public_key = file("~/.ssh/id_rsa.pub")
   }
 
   os_disk {
@@ -267,23 +172,68 @@ resource "azurerm_key_vault_access_policy" "vm_policy" {
   secret_permissions = ["Get", "List"]
 }
 
-# Outputs
-output "public_ip" {
-  value = local.public_ip_address
+# Outputs - Return credentials instead of deploying app
+output "resource_group_name" {
+  value       = azurerm_resource_group.rg.name
+  description = "Name of the resource group"
 }
 
-output "vnet_name" {
-  value = local.vnet_name
+output "resource_group_location" {
+  value       = azurerm_resource_group.rg.location
+  description = "Location of the resource group"
 }
 
-output "vnet_id" {
-  value = local.vnet_id
+output "key_vault_name" {
+  value       = azurerm_key_vault.kv.name
+  description = "Name of the Key Vault"
+}
+
+output "key_vault_uri" {
+  value       = azurerm_key_vault.kv.vault_uri
+  description = "URI of the Key Vault"
+}
+
+output "key_vault_id" {
+  value       = azurerm_key_vault.kv.id
+  description = "Resource ID of the Key Vault"
 }
 
 output "vm_public_ip" {
-  value = local.public_ip_address
+  value       = azurerm_public_ip.pip.ip_address
+  description = "Public IP address of the VM"
+}
+
+output "vm_name" {
+  value       = azurerm_linux_virtual_machine.vm.name
+  description = "Name of the virtual machine"
+}
+
+output "vm_id" {
+  value       = azurerm_linux_virtual_machine.vm.id
+  description = "Resource ID of the virtual machine"
+}
+
+output "vm_principal_id" {
+  value       = azurerm_linux_virtual_machine.vm.identity[0].principal_id
+  description = "Managed Identity Principal ID of the VM"
 }
 
 output "ssh_command" {
-  value = "ssh azureuser@${local.public_ip_address}"
+  value       = "ssh -i ssh_private_key.pem azureuser@${azurerm_public_ip.pip.ip_address}"
+  description = "SSH command to connect to the VM"
+}
+
+output "connection_instructions" {
+  value = <<-EOT
+    To connect to your VM:
+    1. Download the SSH private key from GitHub Actions artifacts
+    2. Set correct permissions: chmod 600 ssh_private_key.pem
+    3. Connect using: ssh -i ssh_private_key.pem azureuser@${azurerm_public_ip.pip.ip_address}
+
+    To access Key Vault:
+    - Vault Name: ${azurerm_key_vault.kv.name}
+    - Vault URI: ${azurerm_key_vault.kv.vault_uri}
+    - Use Azure CLI: az keyvault secret show --vault-name ${azurerm_key_vault.kv.name} --name <secret-name>
+  EOT
+  description = "Instructions for connecting to resources"
 }
