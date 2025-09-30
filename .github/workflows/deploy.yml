@@ -21,12 +21,40 @@ jobs:
         with:
           terraform_wrapper: false
 
-      - name: Generate SSH Key
+      - name: Generate SSH Keys for All Environments
         run: |
           mkdir -p ~/.ssh
-          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
-          echo "SSH Public Key:"
-          cat ~/.ssh/id_rsa.pub
+
+          # Generate SSH key for Dev
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa_dev -N "" -C "dev-environment"
+          echo "Dev SSH Public Key:"
+          cat ~/.ssh/id_rsa_dev.pub
+
+          # Generate SSH key for Staging
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa_staging -N "" -C "staging-environment"
+          echo "Staging SSH Public Key:"
+          cat ~/.ssh/id_rsa_staging.pub
+
+          # Generate SSH key for Production
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa_prod -N "" -C "production-environment"
+          echo "Production SSH Public Key:"
+          cat ~/.ssh/id_rsa_prod.pub
+
+      - name: Create Terraform Variables File
+        run: |
+          cat > terraform.tfvars <<EOF
+          dev_vm_name = "${{ github.event.inputs.dev_vm_name }}"
+          dev_vm_size = "${{ github.event.inputs.dev_vm_size }}"
+          dev_vm_location = "${{ github.event.inputs.dev_vm_location }}"
+
+          staging_vm_name = "${{ github.event.inputs.staging_vm_name }}"
+          staging_vm_size = "${{ github.event.inputs.staging_vm_size }}"
+          staging_vm_location = "${{ github.event.inputs.staging_vm_location }}"
+
+          prod_vm_name = "${{ github.event.inputs.prod_vm_name }}"
+          prod_vm_size = "${{ github.event.inputs.prod_vm_size }}"
+          prod_vm_location = "${{ github.event.inputs.prod_vm_location }}"
+          EOF
 
       - name: Terraform Init
         run: terraform init
@@ -36,167 +64,63 @@ jobs:
         run: |
           if az group show --name setup-infra &>/dev/null; then
             echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Resource Group already exists"
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "Resource Group does not exist, will be created"
           fi
 
-      - name: Import Resource Group (if exists)
-        if: steps.check_rg.outputs.exists == 'true'
+      - name: Import Existing Resources
         run: |
-          terraform import azurerm_resource_group.rg \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra || true
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+          set +e  # Don't fail on import errors
 
-      - name: Check if Key Vault exists
-        id: check_kv
-        run: |
+          SUBSCRIPTION_ID="${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}"
+
+          # Import Resource Group
+          if [ "${{ steps.check_rg.outputs.exists }}" == "true" ]; then
+            terraform import azurerm_resource_group.rg "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra"
+          fi
+
+          # Import Key Vault
           if az keyvault show --name setup-infra-kv &>/dev/null; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Key Vault already exists"
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "Key Vault does not exist, will be created"
+            terraform import azurerm_key_vault.kv "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv"
           fi
 
-      - name: Import Key Vault (if exists)
-        if: steps.check_kv.outputs.exists == 'true'
-        run: |
-          terraform import azurerm_key_vault.kv \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv || true
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
+          # Get Service Principal Object ID
+          OBJECT_ID=$(az ad sp list --filter "appId eq '${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}'" --query "[].id" -o tsv)
+          echo "SP_OBJECT_ID=$OBJECT_ID" >> $GITHUB_ENV
 
-      - name: Get Service Principal Object ID
-        id: sp
-        run: |
-          OBJECT_ID=$(az ad sp list \
-            --filter "appId eq '${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}'" \
-            --query "[].id" -o tsv)
-          echo "object_id=$OBJECT_ID" >> $GITHUB_ENV
-          echo "Service Principal Object ID: $OBJECT_ID"
-
-      - name: Import Key Vault Access Policy (if exists)
-        if: steps.check_kv.outputs.exists == 'true'
-        run: |
-          terraform import azurerm_key_vault_access_policy.policy \
-            "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv/objectId/${{ env.object_id }}" || true
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
-
-      - name: Check and Import Virtual Network
-        run: |
-          if az network vnet show --resource-group setup-infra --name fastapi-vnet-test &>/dev/null; then
-            echo "Virtual Network exists, importing..."
-            terraform import azurerm_virtual_network.vnet \
-              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-test || true
+          # Import SP Access Policy
+          if az keyvault show --name setup-infra-kv &>/dev/null; then
+            terraform import azurerm_key_vault_access_policy.policy "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv/objectId/$OBJECT_ID"
           fi
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Check and Import Subnet
-        run: |
-          if az network vnet subnet show --resource-group setup-infra --vnet-name fastapi-vnet-test --name fastapi-subnet &>/dev/null; then
-            echo "Subnet exists, importing..."
-            terraform import azurerm_subnet.subnet \
-              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-test/subnets/fastapi-subnet || true
+          # Import Dev Environment Resources
+          if az network vnet show --resource-group setup-infra --name fastapi-vnet-dev &>/dev/null; then
+            terraform import azurerm_virtual_network.vnet[\"dev\"] "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-dev"
           fi
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Check and Import Public IP
-        run: |
-          if az network public-ip show --resource-group setup-infra --name fastapi-vm-ip &>/dev/null; then
-            echo "Public IP exists, importing..."
-            terraform import azurerm_public_ip.pip \
-              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.Network/publicIPAddresses/fastapi-vm-ip || true
+          if az network vnet subnet show --resource-group setup-infra --vnet-name fastapi-vnet-dev --name fastapi-subnet-dev &>/dev/null; then
+            terraform import azurerm_subnet.subnet[\"dev\"] "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-dev/subnets/fastapi-subnet-dev"
           fi
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Check and Import Network Security Group
-        run: |
-          if az network nsg show --resource-group setup-infra --name fastapi-nsg &>/dev/null; then
-            echo "NSG exists, importing..."
-            terraform import azurerm_network_security_group.nsg \
-              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.Network/networkSecurityGroups/fastapi-nsg || true
+          # Import Staging Environment Resources
+          if az network vnet show --resource-group setup-infra --name fastapi-vnet-staging &>/dev/null; then
+            terraform import azurerm_virtual_network.vnet[\"staging\"] "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-staging"
           fi
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Check and Import Network Interface
-        run: |
-          if az network nic show --resource-group setup-infra --name fastapi-nic &>/dev/null; then
-            echo "NIC exists, importing..."
-            terraform import azurerm_network_interface.nic \
-              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.Network/networkInterfaces/fastapi-nic || true
+          if az network vnet subnet show --resource-group setup-infra --vnet-name fastapi-vnet-staging --name fastapi-subnet-staging &>/dev/null; then
+            terraform import azurerm_subnet.subnet[\"staging\"] "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-staging/subnets/fastapi-subnet-staging"
           fi
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Check and Import Virtual Machine
-        run: |
-          if az vm show --resource-group setup-infra --name terraform-test &>/dev/null; then
-            echo "VM exists, importing..."
-            terraform import azurerm_linux_virtual_machine.vm \
-              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.Compute/virtualMachines/terraform-test || true
+          # Import Production Environment Resources
+          if az network vnet show --resource-group setup-infra --name fastapi-vnet-prod &>/dev/null; then
+            terraform import azurerm_virtual_network.vnet[\"prod\"] "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-prod"
           fi
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Check and Import VM Key Vault Access Policy
-        run: |
-          if az vm show --resource-group setup-infra --name terraform-test &>/dev/null; then
-            VM_PRINCIPAL_ID=$(az vm identity show \
-              --resource-group setup-infra \
-              --name terraform-test \
-              --query principalId -o tsv)
-            if [ ! -z "$VM_PRINCIPAL_ID" ]; then
-              terraform import azurerm_key_vault_access_policy.vm_policy \
-                "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv/objectId/$VM_PRINCIPAL_ID" || true
-            fi
+          if az network vnet subnet show --resource-group setup-infra --vnet-name fastapi-vnet-prod --name fastapi-subnet-prod &>/dev/null; then
+            terraform import azurerm_subnet.subnet[\"prod\"] "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-prod/subnets/fastapi-subnet-prod"
           fi
-        env:
-          ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
-          ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
-          ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
-          ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Check and Import NSG Association
-        run: |
-          if az network vnet subnet show --resource-group setup-infra --vnet-name fastapi-vnet-test --name fastapi-subnet &>/dev/null; then
-            SUBNET_ID="/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-test/subnets/fastapi-subnet"
-            terraform import azurerm_subnet_network_security_group_association.nsg_association "$SUBNET_ID" || true
-          fi
+          set -e
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
@@ -219,65 +143,126 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Get Key Vault Credentials
-        id: kv_creds
-        run: |
-          KV_URI=$(terraform output -raw key_vault_uri)
-          KV_NAME=$(terraform output -raw key_vault_name)
-          echo "key_vault_uri=$KV_URI" >> $GITHUB_OUTPUT
-          echo "key_vault_name=$KV_NAME" >> $GITHUB_OUTPUT
-
       - name: Get VM Connection Details
         id: vm_details
         run: |
-          VM_IP=$(terraform output -raw vm_public_ip)
-          echo "vm_ip=$VM_IP" >> $GITHUB_OUTPUT
+          echo "dev_vm_ip=$(terraform output -raw dev_vm_public_ip)" >> $GITHUB_OUTPUT
+          echo "staging_vm_ip=$(terraform output -raw staging_vm_public_ip)" >> $GITHUB_OUTPUT
+          echo "prod_vm_ip=$(terraform output -raw prod_vm_public_ip)" >> $GITHUB_OUTPUT
 
-      - name: Save SSH Private Key
+          echo "dev_vm_name=$(terraform output -raw dev_vm_name)" >> $GITHUB_OUTPUT
+          echo "staging_vm_name=$(terraform output -raw staging_vm_name)" >> $GITHUB_OUTPUT
+          echo "prod_vm_name=$(terraform output -raw prod_vm_name)" >> $GITHUB_OUTPUT
+
+      - name: Prepare SSH Keys for Upload
         run: |
-          echo "Saving SSH private key to artifact..."
-          cp ~/.ssh/id_rsa ./ssh_private_key.pem
-          chmod 600 ./ssh_private_key.pem
+          mkdir -p ./ssh-keys
 
-      - name: Upload SSH Private Key
+          # Dev SSH Key
+          cp ~/.ssh/id_rsa_dev ./ssh-keys/dev_ssh_private_key.pem
+          chmod 600 ./ssh-keys/dev_ssh_private_key.pem
+
+          # Staging SSH Key
+          cp ~/.ssh/id_rsa_staging ./ssh-keys/staging_ssh_private_key.pem
+          chmod 600 ./ssh-keys/staging_ssh_private_key.pem
+
+          # Production SSH Key
+          cp ~/.ssh/id_rsa_prod ./ssh-keys/prod_ssh_private_key.pem
+          chmod 600 ./ssh-keys/prod_ssh_private_key.pem
+
+          # Create connection info file
+          cat > ./ssh-keys/CONNECTION_INFO.txt <<EOF
+          ================================================
+          DEPLOYMENT CREDENTIALS - ALL ENVIRONMENTS
+          ================================================
+
+          ** DEVELOPMENT ENVIRONMENT **
+          VM Name: ${{ steps.vm_details.outputs.dev_vm_name }}
+          VM Size: ${{ github.event.inputs.dev_vm_size }}
+          Location: ${{ github.event.inputs.dev_vm_location }}
+          IP Address: ${{ steps.vm_details.outputs.dev_vm_ip }}
+          Username: azureuser
+          SSH Key: dev_ssh_private_key.pem
+          SSH Command: ssh -i dev_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.dev_vm_ip }}
+
+          ** STAGING ENVIRONMENT **
+          VM Name: ${{ steps.vm_details.outputs.staging_vm_name }}
+          VM Size: ${{ github.event.inputs.staging_vm_size }}
+          Location: ${{ github.event.inputs.staging_vm_location }}
+          IP Address: ${{ steps.vm_details.outputs.staging_vm_ip }}
+          Username: azureuser
+          SSH Key: staging_ssh_private_key.pem
+          SSH Command: ssh -i staging_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.staging_vm_ip }}
+
+          ** PRODUCTION ENVIRONMENT **
+          VM Name: ${{ steps.vm_details.outputs.prod_vm_name }}
+          VM Size: ${{ github.event.inputs.prod_vm_size }}
+          Location: ${{ github.event.inputs.prod_vm_location }}
+          IP Address: ${{ steps.vm_details.outputs.prod_vm_ip }}
+          Username: azureuser
+          SSH Key: prod_ssh_private_key.pem
+          SSH Command: ssh -i prod_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.prod_vm_ip }}
+
+          ** KEY VAULT **
+          Name: setup-infra-kv
+          Access: az keyvault secret show --vault-name setup-infra-kv --name <secret-name>
+
+          ================================================
+          EOF
+
+      - name: Upload Development SSH Key
         uses: actions/upload-artifact@v4
         with:
-          name: ssh-credentials
-          path: ./ssh_private_key.pem
+          name: dev-ssh-credentials
+          path: |
+            ./ssh-keys/dev_ssh_private_key.pem
+            ./ssh-keys/CONNECTION_INFO.txt
           retention-days: 7
 
-      - name: Display Credentials Summary
+      - name: Upload Staging SSH Key
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-ssh-credentials
+          path: |
+            ./ssh-keys/staging_ssh_private_key.pem
+            ./ssh-keys/CONNECTION_INFO.txt
+          retention-days: 7
+
+      - name: Upload Production SSH Key
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-ssh-credentials
+          path: |
+            ./ssh-keys/prod_ssh_private_key.pem
+            ./ssh-keys/CONNECTION_INFO.txt
+          retention-days: 7
+
+      - name: Display Deployment Summary
         run: |
           echo "================================================"
-          echo "           DEPLOYMENT CREDENTIALS"
+          echo "     MULTI-ENVIRONMENT DEPLOYMENT SUMMARY"
           echo "================================================"
           echo ""
-          echo "** RESOURCE GROUP: **"
-          echo "   Name: setup-infra"
-          echo "   Location: East Asia"
-          echo "   Status: ${{ steps.check_rg.outputs.exists == 'true' && 'Already Existed' || 'Newly Created' }}"
+          echo "✓ Development Environment:"
+          echo "  VM: ${{ steps.vm_details.outputs.dev_vm_name }}"
+          echo "  Size: ${{ github.event.inputs.dev_vm_size }}"
+          echo "  Location: ${{ github.event.inputs.dev_vm_location }}"
+          echo "  IP: ${{ steps.vm_details.outputs.dev_vm_ip }}"
+          echo "  Connect: ssh -i dev_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.dev_vm_ip }}"
           echo ""
-          echo "** KEY VAULT CREDENTIALS: **"
-          echo "   Name: ${{ steps.kv_creds.outputs.key_vault_name }}"
-          echo "   URI: ${{ steps.kv_creds.outputs.key_vault_uri }}"
-          echo "   Status: ${{ steps.check_kv.outputs.exists == 'true' && 'Already Existed' || 'Newly Created' }}"
+          echo "✓ Staging Environment:"
+          echo "  VM: ${{ steps.vm_details.outputs.staging_vm_name }}"
+          echo "  Size: ${{ github.event.inputs.staging_vm_size }}"
+          echo "  Location: ${{ github.event.inputs.staging_vm_location }}"
+          echo "  IP: ${{ steps.vm_details.outputs.staging_vm_ip }}"
+          echo "  Connect: ssh -i staging_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.staging_vm_ip }}"
           echo ""
-          echo "**  VIRTUAL MACHINE ACCESS: **"
-          echo "   IP Address: ${{ steps.vm_details.outputs.vm_ip }}"
-          echo "   Username: azureuser"
-          echo "   SSH Command: ssh -i ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.vm_ip }}"
+          echo "✓ Production Environment:"
+          echo "  VM: ${{ steps.vm_details.outputs.prod_vm_name }}"
+          echo "  Size: ${{ github.event.inputs.prod_vm_size }}"
+          echo "  Location: ${{ github.event.inputs.prod_vm_location }}"
+          echo "  IP: ${{ steps.vm_details.outputs.prod_vm_ip }}"
+          echo "  Connect: ssh -i prod_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.prod_vm_ip }}"
           echo ""
-          echo "** SSH PRIVATE KEY: **"
-          echo "   Download from: Actions > Artifacts > ssh-credentials"
-          echo "   File: ssh_private_key.pem"
-          echo ""
-          echo "**  USAGE INSTRUCTIONS: **"
-          echo "   1. Download the SSH private key from artifacts"
-          echo "   2. Set permissions: chmod 600 ssh_private_key.pem"
-          echo "   3. Connect to VM: ssh -i ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.vm_ip }}"
-          echo ""
-          echo "** KEY VAULT AUTHENTICATION: **"
-          echo "   Use Azure CLI: az login"
-          echo "   Access secrets: az keyvault secret show --vault-name ${{ steps.kv_creds.outputs.key_vault_name }} --name <secret-name>"
-          echo ""
+          echo "📦 Download SSH keys from Actions > Artifacts"
           echo "================================================"

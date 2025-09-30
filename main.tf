@@ -13,7 +13,83 @@ provider "azurerm" {
 
 data "azurerm_client_config" "current" {}
 
-# Resource Group - will be created if it doesn't exist
+# Variables for VM configurations
+variable "dev_vm_name" {
+  description = "Name for the development VM"
+  type        = string
+}
+
+variable "dev_vm_size" {
+  description = "Size for the development VM"
+  type        = string
+}
+
+variable "dev_vm_location" {
+  description = "Location for the development VM"
+  type        = string
+}
+
+variable "staging_vm_name" {
+  description = "Name for the staging VM"
+  type        = string
+}
+
+variable "staging_vm_size" {
+  description = "Size for the staging VM"
+  type        = string
+}
+
+variable "staging_vm_location" {
+  description = "Location for the staging VM"
+  type        = string
+}
+
+variable "prod_vm_name" {
+  description = "Name for the production VM"
+  type        = string
+}
+
+variable "prod_vm_size" {
+  description = "Size for the production VM"
+  type        = string
+}
+
+variable "prod_vm_location" {
+  description = "Location for the production VM"
+  type        = string
+}
+
+# Local variables for environment configuration
+locals {
+  environments = {
+    dev = {
+      vm_name     = var.dev_vm_name
+      vm_size     = var.dev_vm_size
+      vm_location = var.dev_vm_location
+      vnet_cidr   = "10.0.0.0/16"
+      subnet_cidr = "10.0.1.0/24"
+      ssh_key     = "~/.ssh/id_rsa_dev.pub"
+    }
+    staging = {
+      vm_name     = var.staging_vm_name
+      vm_size     = var.staging_vm_size
+      vm_location = var.staging_vm_location
+      vnet_cidr   = "10.1.0.0/16"
+      subnet_cidr = "10.1.1.0/24"
+      ssh_key     = "~/.ssh/id_rsa_staging.pub"
+    }
+    prod = {
+      vm_name     = var.prod_vm_name
+      vm_size     = var.prod_vm_size
+      vm_location = var.prod_vm_location
+      vnet_cidr   = "10.2.0.0/16"
+      subnet_cidr = "10.2.1.0/24"
+      ssh_key     = "~/.ssh/id_rsa_prod.pub"
+    }
+  }
+}
+
+# Resource Group - Shared across all environments
 resource "azurerm_resource_group" "rg" {
   name     = "setup-infra"
   location = "East Asia"
@@ -23,7 +99,7 @@ resource "azurerm_resource_group" "rg" {
   }
 }
 
-# Key Vault - will be created if it doesn't exist
+# Key Vault - Shared across all environments
 resource "azurerm_key_vault" "kv" {
   name                = "setup-infra-kv"
   location            = azurerm_resource_group.rg.location
@@ -31,7 +107,6 @@ resource "azurerm_key_vault" "kv" {
   tenant_id           = data.azurerm_client_config.current.tenant_id
   sku_name            = "standard"
 
-  # Enable soft delete and purge protection for production
   soft_delete_retention_days = 7
   purge_protection_enabled   = false
 
@@ -50,9 +125,11 @@ resource "azurerm_key_vault_access_policy" "policy" {
   key_permissions    = ["Get", "List", "Create", "Delete"]
 }
 
-# Network Security Group
+# Network Security Groups for each environment
 resource "azurerm_network_security_group" "nsg" {
-  name                = "fastapi-nsg"
+  for_each = local.environments
+
+  name                = "fastapi-nsg-${each.key}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 
@@ -79,71 +156,98 @@ resource "azurerm_network_security_group" "nsg" {
     source_address_prefix      = "*"
     destination_address_prefix = "*"
   }
+
+  tags = {
+    Environment = each.key
+  }
 }
 
-# Virtual Network
+# Virtual Networks for each environment
 resource "azurerm_virtual_network" "vnet" {
-  name                = "fastapi-vnet-test"
-  address_space       = ["10.0.0.0/16"]
+  for_each = local.environments
+
+  name                = "fastapi-vnet-${each.key}"
+  address_space       = [each.value.vnet_cidr]
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
+
+  tags = {
+    Environment = each.key
+  }
 }
 
-# Subnet
+# Subnets for each environment
 resource "azurerm_subnet" "subnet" {
-  name                 = "fastapi-subnet"
+  for_each = local.environments
+
+  name                 = "fastapi-subnet-${each.key}"
   resource_group_name  = azurerm_resource_group.rg.name
-  virtual_network_name = azurerm_virtual_network.vnet.name
-  address_prefixes     = ["10.0.1.0/24"]
+  virtual_network_name = azurerm_virtual_network.vnet[each.key].name
+  address_prefixes     = [each.value.subnet_cidr]
 }
 
 # Associate Network Security Group to Subnet
 resource "azurerm_subnet_network_security_group_association" "nsg_association" {
-  subnet_id                 = azurerm_subnet.subnet.id
-  network_security_group_id = azurerm_network_security_group.nsg.id
+  for_each = local.environments
+
+  subnet_id                 = azurerm_subnet.subnet[each.key].id
+  network_security_group_id = azurerm_network_security_group.nsg[each.key].id
 }
 
-# Public IP
+# Public IPs for each environment
 resource "azurerm_public_ip" "pip" {
-  name                = "fastapi-vm-ip"
+  for_each = local.environments
+
+  name                = "fastapi-vm-ip-${each.key}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   allocation_method   = "Static"
   sku                 = "Standard"
+
+  tags = {
+    Environment = each.key
+  }
 }
 
-# Network Interface
+# Network Interfaces for each environment
 resource "azurerm_network_interface" "nic" {
-  name                = "fastapi-nic"
+  for_each = local.environments
+
+  name                = "fastapi-nic-${each.key}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 
   ip_configuration {
     name                          = "internal"
-    subnet_id                     = azurerm_subnet.subnet.id
+    subnet_id                     = azurerm_subnet.subnet[each.key].id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.pip.id
+    public_ip_address_id          = azurerm_public_ip.pip[each.key].id
+  }
+
+  tags = {
+    Environment = each.key
   }
 }
 
-# Virtual Machine
+# Virtual Machines for each environment
 resource "azurerm_linux_virtual_machine" "vm" {
-  name                = "terraform-test"
+  for_each = local.environments
+
+  name                = each.value.vm_name
   resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  size                = "Standard_B1s"
+  location            = each.value.vm_location
+  size                = each.value.vm_size
   admin_username      = "azureuser"
 
-  # Disable password authentication
   disable_password_authentication = true
 
   network_interface_ids = [
-    azurerm_network_interface.nic.id,
+    azurerm_network_interface.nic[each.key].id,
   ]
 
   admin_ssh_key {
     username   = "azureuser"
-    public_key = file("~/.ssh/id_rsa.pub")
+    public_key = file(each.value.ssh_key)
   }
 
   os_disk {
@@ -161,26 +265,27 @@ resource "azurerm_linux_virtual_machine" "vm" {
   identity {
     type = "SystemAssigned"
   }
+
+  tags = {
+    Environment = each.key
+  }
 }
 
 # Grant VM access to Key Vault
 resource "azurerm_key_vault_access_policy" "vm_policy" {
+  for_each = local.environments
+
   key_vault_id = azurerm_key_vault.kv.id
-  tenant_id    = azurerm_linux_virtual_machine.vm.identity[0].tenant_id
-  object_id    = azurerm_linux_virtual_machine.vm.identity[0].principal_id
+  tenant_id    = azurerm_linux_virtual_machine.vm[each.key].identity[0].tenant_id
+  object_id    = azurerm_linux_virtual_machine.vm[each.key].identity[0].principal_id
 
   secret_permissions = ["Get", "List"]
 }
 
-# Outputs - Return credentials instead of deploying app
+# Outputs for all environments
 output "resource_group_name" {
   value       = azurerm_resource_group.rg.name
   description = "Name of the resource group"
-}
-
-output "resource_group_location" {
-  value       = azurerm_resource_group.rg.location
-  description = "Location of the resource group"
 }
 
 output "key_vault_name" {
@@ -193,47 +298,108 @@ output "key_vault_uri" {
   description = "URI of the Key Vault"
 }
 
-output "key_vault_id" {
-  value       = azurerm_key_vault.kv.id
-  description = "Resource ID of the Key Vault"
+# Dev Environment Outputs
+output "dev_vm_name" {
+  value       = azurerm_linux_virtual_machine.vm["dev"].name
+  description = "Name of the development VM"
 }
 
-output "vm_public_ip" {
-  value       = azurerm_public_ip.pip.ip_address
-  description = "Public IP address of the VM"
+output "dev_vm_public_ip" {
+  value       = azurerm_public_ip.pip["dev"].ip_address
+  description = "Public IP address of the development VM"
 }
 
-output "vm_name" {
-  value       = azurerm_linux_virtual_machine.vm.name
-  description = "Name of the virtual machine"
+output "dev_vm_size" {
+  value       = azurerm_linux_virtual_machine.vm["dev"].size
+  description = "Size of the development VM"
 }
 
-output "vm_id" {
-  value       = azurerm_linux_virtual_machine.vm.id
-  description = "Resource ID of the virtual machine"
+output "dev_vm_location" {
+  value       = azurerm_linux_virtual_machine.vm["dev"].location
+  description = "Location of the development VM"
 }
 
-output "vm_principal_id" {
-  value       = azurerm_linux_virtual_machine.vm.identity[0].principal_id
-  description = "Managed Identity Principal ID of the VM"
+output "dev_ssh_command" {
+  value       = "ssh -i dev_ssh_private_key.pem azureuser@${azurerm_public_ip.pip["dev"].ip_address}"
+  description = "SSH command to connect to the development VM"
 }
 
-output "ssh_command" {
-  value       = "ssh -i ssh_private_key.pem azureuser@${azurerm_public_ip.pip.ip_address}"
-  description = "SSH command to connect to the VM"
+# Staging Environment Outputs
+output "staging_vm_name" {
+  value       = azurerm_linux_virtual_machine.vm["staging"].name
+  description = "Name of the staging VM"
 }
 
-output "connection_instructions" {
-  value = <<-EOT
-    To connect to your VM:
-    1. Download the SSH private key from GitHub Actions artifacts
-    2. Set correct permissions: chmod 600 ssh_private_key.pem
-    3. Connect using: ssh -i ssh_private_key.pem azureuser@${azurerm_public_ip.pip.ip_address}
+output "staging_vm_public_ip" {
+  value       = azurerm_public_ip.pip["staging"].ip_address
+  description = "Public IP address of the staging VM"
+}
 
-    To access Key Vault:
-    - Vault Name: ${azurerm_key_vault.kv.name}
-    - Vault URI: ${azurerm_key_vault.kv.vault_uri}
-    - Use Azure CLI: az keyvault secret show --vault-name ${azurerm_key_vault.kv.name} --name <secret-name>
-  EOT
-  description = "Instructions for connecting to resources"
+output "staging_vm_size" {
+  value       = azurerm_linux_virtual_machine.vm["staging"].size
+  description = "Size of the staging VM"
+}
+
+output "staging_vm_location" {
+  value       = azurerm_linux_virtual_machine.vm["staging"].location
+  description = "Location of the staging VM"
+}
+
+output "staging_ssh_command" {
+  value       = "ssh -i staging_ssh_private_key.pem azureuser@${azurerm_public_ip.pip["staging"].ip_address}"
+  description = "SSH command to connect to the staging VM"
+}
+
+# Production Environment Outputs
+output "prod_vm_name" {
+  value       = azurerm_linux_virtual_machine.vm["prod"].name
+  description = "Name of the production VM"
+}
+
+output "prod_vm_public_ip" {
+  value       = azurerm_public_ip.pip["prod"].ip_address
+  description = "Public IP address of the production VM"
+}
+
+output "prod_vm_size" {
+  value       = azurerm_linux_virtual_machine.vm["prod"].size
+  description = "Size of the production VM"
+}
+
+output "prod_vm_location" {
+  value       = azurerm_linux_virtual_machine.vm["prod"].location
+  description = "Location of the production VM"
+}
+
+output "prod_ssh_command" {
+  value       = "ssh -i prod_ssh_private_key.pem azureuser@${azurerm_public_ip.pip["prod"].ip_address}"
+  description = "SSH command to connect to the production VM"
+}
+
+# Summary output
+output "deployment_summary" {
+  value = {
+    dev = {
+      vm_name   = azurerm_linux_virtual_machine.vm["dev"].name
+      vm_size   = azurerm_linux_virtual_machine.vm["dev"].size
+      location  = azurerm_linux_virtual_machine.vm["dev"].location
+      public_ip = azurerm_public_ip.pip["dev"].ip_address
+      ssh_key   = "dev_ssh_private_key.pem"
+    }
+    staging = {
+      vm_name   = azurerm_linux_virtual_machine.vm["staging"].name
+      vm_size   = azurerm_linux_virtual_machine.vm["staging"].size
+      location  = azurerm_linux_virtual_machine.vm["staging"].location
+      public_ip = azurerm_public_ip.pip["staging"].ip_address
+      ssh_key   = "staging_ssh_private_key.pem"
+    }
+    prod = {
+      vm_name   = azurerm_linux_virtual_machine.vm["prod"].name
+      vm_size   = azurerm_linux_virtual_machine.vm["prod"].size
+      location  = azurerm_linux_virtual_machine.vm["prod"].location
+      public_ip = azurerm_public_ip.pip["prod"].ip_address
+      ssh_key   = "prod_ssh_private_key.pem"
+    }
+  }
+  description = "Summary of all deployed environments"
 }
