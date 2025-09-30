@@ -6,12 +6,12 @@
     },
     "staging": {
         "vm_name": "fastapi-staging-vm",
-        "vm_size": "Standard_B2s",
+        "vm_size": "Standard_B1s",
         "vm_location": "East Asia"
     },
     "prod": {
         "vm_name": "fastapi-prod-vm",
-        "vm_size": "Standard_D2s_v3",
+        "vm_size": "Standard_B1s",
         "vm_location": "East Asia"
     }
 }
