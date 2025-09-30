@@ -14,7 +14,7 @@ provider "azurerm" {
 data "azurerm_client_config" "current" {}
 
 # Resource Group - will be created if it doesn't exist
-resource "azurerm_resource_group" "rg" {
+resource "azurerm_resource_group_v2" "rg" {
   name     = "fastapi-rg"
   location = "East Asia"
 
@@ -26,8 +26,8 @@ resource "azurerm_resource_group" "rg" {
 # Key Vault - will be created if it doesn't exist
 resource "azurerm_key_vault" "kv" {
   name                = "fastapikv123"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group_v2.rg.location
+  resource_group_name = azurerm_resource_group_v2.rg.name
   tenant_id           = data.azurerm_client_config.current.tenant_id
   sku_name            = "standard"
 
@@ -53,8 +53,8 @@ resource "azurerm_key_vault_access_policy" "policy" {
 # Network Security Group
 resource "azurerm_network_security_group" "nsg" {
   name                = "fastapi-nsg"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group_v2.rg.location
+  resource_group_name = azurerm_resource_group_v2.rg.name
 
   security_rule {
     name                       = "SSH"
@@ -85,14 +85,14 @@ resource "azurerm_network_security_group" "nsg" {
 resource "azurerm_virtual_network" "vnet" {
   name                = "fastapi-vnet-test"
   address_space       = ["10.0.0.0/16"]
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group_v2.rg.location
+  resource_group_name = azurerm_resource_group_v2.rg.name
 }
 
 # Subnet
 resource "azurerm_subnet" "subnet" {
   name                 = "fastapi-subnet"
-  resource_group_name  = azurerm_resource_group.rg.name
+  resource_group_name  = azurerm_resource_group_v2.rg.name
   virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = ["10.0.1.0/24"]
 }
@@ -106,8 +106,8 @@ resource "azurerm_subnet_network_security_group_association" "nsg_association" {
 # Public IP
 resource "azurerm_public_ip" "pip" {
   name                = "fastapi-vm-ip"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group_v2.rg.location
+  resource_group_name = azurerm_resource_group_v2.rg.name
   allocation_method   = "Static"
   sku                 = "Standard"
 }
@@ -115,8 +115,8 @@ resource "azurerm_public_ip" "pip" {
 # Network Interface
 resource "azurerm_network_interface" "nic" {
   name                = "fastapi-nic"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group_v2.rg.location
+  resource_group_name = azurerm_resource_group_v2.rg.name
 
   ip_configuration {
     name                          = "internal"
@@ -128,9 +128,9 @@ resource "azurerm_network_interface" "nic" {
 
 # Virtual Machine
 resource "azurerm_linux_virtual_machine" "vm" {
-  name                = "terraform-test"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
+  name                = "terraform-test-v2"
+  resource_group_name = azurerm_resource_group_v2.rg.name
+  location            = azurerm_resource_group_v2.rg.location
   size                = "Standard_B1s"
   admin_username      = "azureuser"
 
@@ -174,12 +174,12 @@ resource "azurerm_key_vault_access_policy" "vm_policy" {
 
 # Outputs - Return credentials instead of deploying app
 output "resource_group_name" {
-  value       = azurerm_resource_group.rg.name
+  value       = azurerm_resource_group_v2.rg.name
   description = "Name of the resource group"
 }
 
 output "resource_group_location" {
-  value       = azurerm_resource_group.rg.location
+  value       = azurerm_resource_group_v2.rg.location
   description = "Location of the resource group"
 }
 

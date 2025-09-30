@@ -45,7 +45,7 @@ jobs:
       - name: Import Resource Group (if exists)
         if: steps.check_rg.outputs.exists == 'true'
         run: |
-          terraform import azurerm_resource_group.rg \
+          terraform import azurerm_resource_group_v2.rg \
             /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg || true
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
@@ -162,10 +162,10 @@ jobs:
 
       - name: Check and Import Virtual Machine
         run: |
-          if az vm show --resource-group fastapi-rg --name terraform-test &>/dev/null; then
+          if az vm show --resource-group fastapi-rg --name terraform-test-v2 &>/dev/null; then
             echo "VM exists, importing..."
             terraform import azurerm_linux_virtual_machine.vm \
-              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Compute/virtualMachines/terraform-test || true
+              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/fastapi-rg/providers/Microsoft.Compute/virtualMachines/terraform-test-v2 || true
           fi
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
@@ -175,10 +175,10 @@ jobs:
 
       - name: Check and Import VM Key Vault Access Policy
         run: |
-          if az vm show --resource-group fastapi-rg --name terraform-test &>/dev/null; then
+          if az vm show --resource-group fastapi-rg --name terraform-test-v2 &>/dev/null; then
             VM_PRINCIPAL_ID=$(az vm identity show \
               --resource-group fastapi-rg \
-              --name terraform-test \
+              --name terraform-test-v2 \
               --query principalId -o tsv)
             if [ ! -z "$VM_PRINCIPAL_ID" ]; then
               terraform import azurerm_key_vault_access_policy.vm_policy \
