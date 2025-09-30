@@ -15,7 +15,7 @@ data "azurerm_client_config" "current" {}
 
 # Resource Group - will be created if it doesn't exist
 resource "azurerm_resource_group" "rg" {
-  name     = "fastapi-rg"
+  name     = "setup-infra"
   location = "East Asia"
 
   lifecycle {
