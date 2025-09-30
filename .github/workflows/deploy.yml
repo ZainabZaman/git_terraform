@@ -56,7 +56,7 @@ jobs:
       - name: Check if Key Vault exists
         id: check_kv
         run: |
-          if az keyvault show --name fastapikv123 &>/dev/null; then
+          if az keyvault show --name setup-infra-kv &>/dev/null; then
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "Key Vault already exists"
           else
@@ -68,7 +68,7 @@ jobs:
         if: steps.check_kv.outputs.exists == 'true'
         run: |
           terraform import azurerm_key_vault.kv \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/fastapikv123 || true
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv || true
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
@@ -88,7 +88,7 @@ jobs:
         if: steps.check_kv.outputs.exists == 'true'
         run: |
           terraform import azurerm_key_vault_access_policy.policy \
-            "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/fastapikv123/objectId/${{ env.object_id }}" || true
+            "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv/objectId/${{ env.object_id }}" || true
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
@@ -182,7 +182,7 @@ jobs:
               --query principalId -o tsv)
             if [ ! -z "$VM_PRINCIPAL_ID" ]; then
               terraform import azurerm_key_vault_access_policy.vm_policy \
-                "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/fastapikv123/objectId/$VM_PRINCIPAL_ID" || true
+                "/subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv/objectId/$VM_PRINCIPAL_ID" || true
             fi
           fi
         env:
