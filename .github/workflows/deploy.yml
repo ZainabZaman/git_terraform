@@ -21,6 +21,40 @@ jobs:
         with:
           terraform_wrapper: false
 
+      - name: Load VM Configuration
+        id: load_config
+        run: |
+          # Read configuration from vm-config.json
+          DEV_VM_NAME=$(jq -r '.dev.vm_name' vm-config.json)
+          DEV_VM_SIZE=$(jq -r '.dev.vm_size' vm-config.json)
+          DEV_VM_LOCATION=$(jq -r '.dev.vm_location' vm-config.json)
+
+          STAGING_VM_NAME=$(jq -r '.staging.vm_name' vm-config.json)
+          STAGING_VM_SIZE=$(jq -r '.staging.vm_size' vm-config.json)
+          STAGING_VM_LOCATION=$(jq -r '.staging.vm_location' vm-config.json)
+
+          PROD_VM_NAME=$(jq -r '.prod.vm_name' vm-config.json)
+          PROD_VM_SIZE=$(jq -r '.prod.vm_size' vm-config.json)
+          PROD_VM_LOCATION=$(jq -r '.prod.vm_location' vm-config.json)
+
+          # Export to GITHUB_OUTPUT
+          echo "dev_vm_name=$DEV_VM_NAME" >> $GITHUB_OUTPUT
+          echo "dev_vm_size=$DEV_VM_SIZE" >> $GITHUB_OUTPUT
+          echo "dev_vm_location=$DEV_VM_LOCATION" >> $GITHUB_OUTPUT
+
+          echo "staging_vm_name=$STAGING_VM_NAME" >> $GITHUB_OUTPUT
+          echo "staging_vm_size=$STAGING_VM_SIZE" >> $GITHUB_OUTPUT
+          echo "staging_vm_location=$STAGING_VM_LOCATION" >> $GITHUB_OUTPUT
+
+          echo "prod_vm_name=$PROD_VM_NAME" >> $GITHUB_OUTPUT
+          echo "prod_vm_size=$PROD_VM_SIZE" >> $GITHUB_OUTPUT
+          echo "prod_vm_location=$PROD_VM_LOCATION" >> $GITHUB_OUTPUT
+
+          echo "VM Configuration loaded:"
+          echo "Dev: $DEV_VM_NAME | $DEV_VM_SIZE | $DEV_VM_LOCATION"
+          echo "Staging: $STAGING_VM_NAME | $STAGING_VM_SIZE | $STAGING_VM_LOCATION"
+          echo "Production: $PROD_VM_NAME | $PROD_VM_SIZE | $PROD_VM_LOCATION"
+
       - name: Generate SSH Keys for All Environments
         run: |
           mkdir -p ~/.ssh
@@ -43,17 +77,17 @@ jobs:
       - name: Create Terraform Variables File
         run: |
           cat > terraform.tfvars <<EOF
-          dev_vm_name = "${{ github.event.inputs.dev_vm_name }}"
-          dev_vm_size = "${{ github.event.inputs.dev_vm_size }}"
-          dev_vm_location = "${{ github.event.inputs.dev_vm_location }}"
+          dev_vm_name = "${{ steps.load_config.outputs.dev_vm_name }}"
+          dev_vm_size = "${{ steps.load_config.outputs.dev_vm_size }}"
+          dev_vm_location = "${{ steps.load_config.outputs.dev_vm_location }}"
 
-          staging_vm_name = "${{ github.event.inputs.staging_vm_name }}"
-          staging_vm_size = "${{ github.event.inputs.staging_vm_size }}"
-          staging_vm_location = "${{ github.event.inputs.staging_vm_location }}"
+          staging_vm_name = "${{ steps.load_config.outputs.staging_vm_name }}"
+          staging_vm_size = "${{ steps.load_config.outputs.staging_vm_size }}"
+          staging_vm_location = "${{ steps.load_config.outputs.staging_vm_location }}"
 
-          prod_vm_name = "${{ github.event.inputs.prod_vm_name }}"
-          prod_vm_size = "${{ github.event.inputs.prod_vm_size }}"
-          prod_vm_location = "${{ github.event.inputs.prod_vm_location }}"
+          prod_vm_name = "${{ steps.load_config.outputs.prod_vm_name }}"
+          prod_vm_size = "${{ steps.load_config.outputs.prod_vm_size }}"
+          prod_vm_location = "${{ steps.load_config.outputs.prod_vm_location }}"
           EOF
 
       - name: Terraform Init
@@ -178,8 +212,8 @@ jobs:
 
           ** DEVELOPMENT ENVIRONMENT **
           VM Name: ${{ steps.vm_details.outputs.dev_vm_name }}
-          VM Size: ${{ github.event.inputs.dev_vm_size }}
-          Location: ${{ github.event.inputs.dev_vm_location }}
+          VM Size: ${{ steps.load_config.outputs.dev_vm_size }}
+          Location: ${{ steps.load_config.outputs.dev_vm_location }}
           IP Address: ${{ steps.vm_details.outputs.dev_vm_ip }}
           Username: azureuser
           SSH Key: dev_ssh_private_key.pem
@@ -187,8 +221,8 @@ jobs:
 
           ** STAGING ENVIRONMENT **
           VM Name: ${{ steps.vm_details.outputs.staging_vm_name }}
-          VM Size: ${{ github.event.inputs.staging_vm_size }}
-          Location: ${{ github.event.inputs.staging_vm_location }}
+          VM Size: ${{ steps.load_config.outputs.staging_vm_size }}
+          Location: ${{ steps.load_config.outputs.staging_vm_location }}
           IP Address: ${{ steps.vm_details.outputs.staging_vm_ip }}
           Username: azureuser
           SSH Key: staging_ssh_private_key.pem
@@ -196,8 +230,8 @@ jobs:
 
           ** PRODUCTION ENVIRONMENT **
           VM Name: ${{ steps.vm_details.outputs.prod_vm_name }}
-          VM Size: ${{ github.event.inputs.prod_vm_size }}
-          Location: ${{ github.event.inputs.prod_vm_location }}
+          VM Size: ${{ steps.load_config.outputs.prod_vm_size }}
+          Location: ${{ steps.load_config.outputs.prod_vm_location }}
           IP Address: ${{ steps.vm_details.outputs.prod_vm_ip }}
           Username: azureuser
           SSH Key: prod_ssh_private_key.pem
@@ -245,22 +279,22 @@ jobs:
           echo ""
           echo "✓ Development Environment:"
           echo "  VM: ${{ steps.vm_details.outputs.dev_vm_name }}"
-          echo "  Size: ${{ github.event.inputs.dev_vm_size }}"
-          echo "  Location: ${{ github.event.inputs.dev_vm_location }}"
+          echo "  Size: ${{ steps.load_config.outputs.dev_vm_size }}"
+          echo "  Location: ${{ steps.load_config.outputs.dev_vm_location }}"
           echo "  IP: ${{ steps.vm_details.outputs.dev_vm_ip }}"
           echo "  Connect: ssh -i dev_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.dev_vm_ip }}"
           echo ""
           echo "✓ Staging Environment:"
           echo "  VM: ${{ steps.vm_details.outputs.staging_vm_name }}"
-          echo "  Size: ${{ github.event.inputs.staging_vm_size }}"
-          echo "  Location: ${{ github.event.inputs.staging_vm_location }}"
+          echo "  Size: ${{ steps.load_config.outputs.staging_vm_size }}"
+          echo "  Location: ${{ steps.load_config.outputs.staging_vm_location }}"
           echo "  IP: ${{ steps.vm_details.outputs.staging_vm_ip }}"
           echo "  Connect: ssh -i staging_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.staging_vm_ip }}"
           echo ""
           echo "✓ Production Environment:"
           echo "  VM: ${{ steps.vm_details.outputs.prod_vm_name }}"
-          echo "  Size: ${{ github.event.inputs.prod_vm_size }}"
-          echo "  Location: ${{ github.event.inputs.prod_vm_location }}"
+          echo "  Size: ${{ steps.load_config.outputs.prod_vm_size }}"
+          echo "  Location: ${{ steps.load_config.outputs.prod_vm_location }}"
           echo "  IP: ${{ steps.vm_details.outputs.prod_vm_ip }}"
           echo "  Connect: ssh -i prod_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.prod_vm_ip }}"
           echo ""
