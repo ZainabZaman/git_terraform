@@ -8,10 +8,5 @@
         "vm_name": "fastapi-staging-vm",
         "vm_size": "Standard_B1s",
         "vm_location": "East US"
-    },
-    "prod": {
-        "vm_name": "fastapi-prod-vm",
-        "vm_size": "Standard_B1s",
-        "vm_location": "East US"
     }
 }

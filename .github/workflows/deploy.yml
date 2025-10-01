@@ -102,6 +102,37 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Cleanup Existing Public IPs (if needed)
+        run: |
+          echo "Checking for existing Public IPs..."
+
+          # List all public IPs in the resource group
+          az network public-ip list --resource-group setup-infra --output table || true
+
+          # Get count of public IPs in East Asia region
+          EAST_ASIA_COUNT=$(az network public-ip list \
+            --resource-group setup-infra \
+            --query "[?location=='eastasia'] | length(@)" -o tsv || echo "0")
+
+          echo "Public IPs in East Asia: $EAST_ASIA_COUNT"
+
+          # If we have 3 or more IPs in East Asia, we need to clean up or move resources
+          if [ "$EAST_ASIA_COUNT" -ge 3 ]; then
+            echo "WARNING: Public IP quota reached in East Asia region"
+            echo "Current Public IPs:"
+            az network public-ip list --resource-group setup-infra \
+              --query "[?location=='eastasia'].{Name:name, IP:ipAddress, State:provisioningState}" \
+              --output table || true
+
+            echo ""
+            echo "To resolve this, you have two options:"
+            echo "1. Delete unused Public IPs manually in Azure Portal"
+            echo "2. Ensure your vm-config.json uses different regions for each environment"
+            echo ""
+            echo "Checking vm-config.json settings..."
+            cat vm-config.json
+          fi
+
       - name: Import Existing Resources
         run: |
           set +e  # Don't fail on import errors
@@ -110,12 +141,14 @@ jobs:
 
           # Import Resource Group
           if [ "${{ steps.check_rg.outputs.exists }}" == "true" ]; then
-            terraform import azurerm_resource_group.rg "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra"
+            echo "Importing Resource Group..."
+            terraform import azurerm_resource_group.rg "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra" || true
           fi
 
           # Import Key Vault
           if az keyvault show --name setup-infra-kv &>/dev/null; then
-            terraform import azurerm_key_vault.kv "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv"
+            echo "Importing Key Vault..."
+            terraform import azurerm_key_vault.kv "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv" || true
           fi
 
           # Get Service Principal Object ID
@@ -124,65 +157,71 @@ jobs:
 
           # Import SP Access Policy
           if az keyvault show --name setup-infra-kv &>/dev/null; then
-            terraform import azurerm_key_vault_access_policy.policy "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv/objectId/$OBJECT_ID"
+            echo "Importing Key Vault Access Policy..."
+            terraform import azurerm_key_vault_access_policy.policy "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv/objectId/$OBJECT_ID" || true
           fi
 
-          # Import Network Security Groups
+          # Import resources for each environment
           for env in dev staging prod; do
+            echo "========================================="
+            echo "Importing resources for $env environment"
+            echo "========================================="
+
+            # Import Network Security Groups
             if az network nsg show --resource-group setup-infra --name fastapi-nsg-$env &>/dev/null; then
-              terraform import "azurerm_network_security_group.nsg[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/networkSecurityGroups/fastapi-nsg-$env"
+              echo "Importing NSG for $env..."
+              terraform import "azurerm_network_security_group.nsg[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/networkSecurityGroups/fastapi-nsg-$env" || true
             fi
-          done
 
-          # Import Virtual Networks
-          for env in dev staging prod; do
+            # Import Virtual Networks
             if az network vnet show --resource-group setup-infra --name fastapi-vnet-$env &>/dev/null; then
-              terraform import "azurerm_virtual_network.vnet[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-$env"
+              echo "Importing VNet for $env..."
+              terraform import "azurerm_virtual_network.vnet[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-$env" || true
             fi
-          done
 
-          # Import Subnets
-          for env in dev staging prod; do
+            # Import Subnets
             if az network vnet subnet show --resource-group setup-infra --vnet-name fastapi-vnet-$env --name fastapi-subnet-$env &>/dev/null; then
-              terraform import "azurerm_subnet.subnet[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-$env/subnets/fastapi-subnet-$env"
+              echo "Importing Subnet for $env..."
+              terraform import "azurerm_subnet.subnet[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-$env/subnets/fastapi-subnet-$env" || true
             fi
-          done
 
-          # Import NSG-Subnet Associations
-          for env in dev staging prod; do
+            # Import NSG-Subnet Associations
             SUBNET_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-$env/subnets/fastapi-subnet-$env"
             if az network vnet subnet show --ids $SUBNET_ID &>/dev/null; then
-              terraform import "azurerm_subnet_network_security_group_association.nsg_association[\"$env\"]" "$SUBNET_ID"
+              echo "Importing NSG-Subnet association for $env..."
+              terraform import "azurerm_subnet_network_security_group_association.nsg_association[\"$env\"]" "$SUBNET_ID" || true
             fi
-          done
 
-          # Import Public IPs
-          for env in dev staging prod; do
+            # Import Public IPs
             if az network public-ip show --resource-group setup-infra --name fastapi-vm-ip-$env &>/dev/null; then
-              terraform import "azurerm_public_ip.pip[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/publicIPAddresses/fastapi-vm-ip-$env"
+              echo "Importing Public IP for $env..."
+              terraform import "azurerm_public_ip.pip[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/publicIPAddresses/fastapi-vm-ip-$env" || true
             fi
-          done
 
-          # Import Network Interfaces
-          for env in dev staging prod; do
+            # Import Network Interfaces
             if az network nic show --resource-group setup-infra --name fastapi-nic-$env &>/dev/null; then
-              terraform import "azurerm_network_interface.nic[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/networkInterfaces/fastapi-nic-$env"
+              echo "Importing Network Interface for $env..."
+              terraform import "azurerm_network_interface.nic[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/networkInterfaces/fastapi-nic-$env" || true
             fi
-          done
 
-          # Import Virtual Machines
-          for env in dev staging prod; do
+            # Import Virtual Machines
             VM_NAME=$(jq -r ".$env.vm_name" vm-config.json)
             if az vm show --resource-group setup-infra --name $VM_NAME &>/dev/null; then
-              terraform import "azurerm_linux_virtual_machine.vm[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Compute/virtualMachines/$VM_NAME"
+              echo "Importing VM for $env: $VM_NAME..."
+              terraform import "azurerm_linux_virtual_machine.vm[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Compute/virtualMachines/$VM_NAME" || true
 
               # Import VM Key Vault Access Policy
-              VM_PRINCIPAL_ID=$(az vm show --resource-group setup-infra --name $VM_NAME --query identity.principalId -o tsv)
-              if [ ! -z "$VM_PRINCIPAL_ID" ]; then
-                terraform import "azurerm_key_vault_access_policy.vm_policy[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv/objectId/$VM_PRINCIPAL_ID"
+              VM_PRINCIPAL_ID=$(az vm show --resource-group setup-infra --name $VM_NAME --query identity.principalId -o tsv 2>/dev/null)
+              if [ ! -z "$VM_PRINCIPAL_ID" ] && [ "$VM_PRINCIPAL_ID" != "null" ]; then
+                echo "Importing Key Vault Access Policy for $env VM..."
+                terraform import "azurerm_key_vault_access_policy.vm_policy[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv/objectId/$VM_PRINCIPAL_ID" || true
               fi
             fi
           done
+
+          echo "========================================="
+          echo "Import process completed"
+          echo "========================================="
 
           set -e
         env:
