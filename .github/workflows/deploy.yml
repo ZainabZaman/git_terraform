@@ -33,10 +33,6 @@ jobs:
           STAGING_VM_SIZE=$(jq -r '.staging.vm_size' vm-config.json)
           STAGING_VM_LOCATION=$(jq -r '.staging.vm_location' vm-config.json)
 
-          PROD_VM_NAME=$(jq -r '.prod.vm_name' vm-config.json)
-          PROD_VM_SIZE=$(jq -r '.prod.vm_size' vm-config.json)
-          PROD_VM_LOCATION=$(jq -r '.prod.vm_location' vm-config.json)
-
           # Export to GITHUB_OUTPUT
           echo "dev_vm_name=$DEV_VM_NAME" >> $GITHUB_OUTPUT
           echo "dev_vm_size=$DEV_VM_SIZE" >> $GITHUB_OUTPUT
@@ -46,14 +42,9 @@ jobs:
           echo "staging_vm_size=$STAGING_VM_SIZE" >> $GITHUB_OUTPUT
           echo "staging_vm_location=$STAGING_VM_LOCATION" >> $GITHUB_OUTPUT
 
-          echo "prod_vm_name=$PROD_VM_NAME" >> $GITHUB_OUTPUT
-          echo "prod_vm_size=$PROD_VM_SIZE" >> $GITHUB_OUTPUT
-          echo "prod_vm_location=$PROD_VM_LOCATION" >> $GITHUB_OUTPUT
-
           echo "VM Configuration loaded:"
           echo "Dev: $DEV_VM_NAME | $DEV_VM_SIZE | $DEV_VM_LOCATION"
           echo "Staging: $STAGING_VM_NAME | $STAGING_VM_SIZE | $STAGING_VM_LOCATION"
-          echo "Production: $PROD_VM_NAME | $PROD_VM_SIZE | $PROD_VM_LOCATION"
 
       - name: Generate SSH Keys for All Environments
         run: |
@@ -69,11 +60,6 @@ jobs:
           echo "Staging SSH Public Key:"
           cat ~/.ssh/id_rsa_staging.pub
 
-          # Generate SSH key for Production
-          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa_prod -N "" -C "production-environment"
-          echo "Production SSH Public Key:"
-          cat ~/.ssh/id_rsa_prod.pub
-
       - name: Create Terraform Variables File
         run: |
           cat > terraform.tfvars <<EOF
@@ -85,9 +71,6 @@ jobs:
           staging_vm_size = "${{ steps.load_config.outputs.staging_vm_size }}"
           staging_vm_location = "${{ steps.load_config.outputs.staging_vm_location }}"
 
-          prod_vm_name = "${{ steps.load_config.outputs.prod_vm_name }}"
-          prod_vm_size = "${{ steps.load_config.outputs.prod_vm_size }}"
-          prod_vm_location = "${{ steps.load_config.outputs.prod_vm_location }}"
           EOF
 
       - name: Terraform Init
@@ -162,7 +145,7 @@ jobs:
           fi
 
           # Import resources for each environment
-          for env in dev staging prod; do
+          for env in dev staging; do
             echo "========================================="
             echo "Importing resources for $env environment"
             echo "========================================="
@@ -251,11 +234,9 @@ jobs:
         run: |
           echo "dev_vm_ip=$(terraform output -raw dev_vm_public_ip)" >> $GITHUB_OUTPUT
           echo "staging_vm_ip=$(terraform output -raw staging_vm_public_ip)" >> $GITHUB_OUTPUT
-          echo "prod_vm_ip=$(terraform output -raw prod_vm_public_ip)" >> $GITHUB_OUTPUT
 
           echo "dev_vm_name=$(terraform output -raw dev_vm_name)" >> $GITHUB_OUTPUT
           echo "staging_vm_name=$(terraform output -raw staging_vm_name)" >> $GITHUB_OUTPUT
-          echo "prod_vm_name=$(terraform output -raw prod_vm_name)" >> $GITHUB_OUTPUT
 
       - name: Prepare SSH Keys for Upload
         run: |
@@ -268,10 +249,6 @@ jobs:
           # Staging SSH Key
           cp ~/.ssh/id_rsa_staging ./ssh-keys/staging_ssh_private_key.pem
           chmod 600 ./ssh-keys/staging_ssh_private_key.pem
-
-          # Production SSH Key
-          cp ~/.ssh/id_rsa_prod ./ssh-keys/prod_ssh_private_key.pem
-          chmod 600 ./ssh-keys/prod_ssh_private_key.pem
 
           # Create connection info file
           cat > ./ssh-keys/CONNECTION_INFO.txt <<EOF
@@ -296,15 +273,6 @@ jobs:
           Username: azureuser
           SSH Key: staging_ssh_private_key.pem
           SSH Command: ssh -i staging_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.staging_vm_ip }}
-
-          ** PRODUCTION ENVIRONMENT **
-          VM Name: ${{ steps.vm_details.outputs.prod_vm_name }}
-          VM Size: ${{ steps.load_config.outputs.prod_vm_size }}
-          Location: ${{ steps.load_config.outputs.prod_vm_location }}
-          IP Address: ${{ steps.vm_details.outputs.prod_vm_ip }}
-          Username: azureuser
-          SSH Key: prod_ssh_private_key.pem
-          SSH Command: ssh -i prod_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.prod_vm_ip }}
 
           ** KEY VAULT **
           Name: setup-infra-kv
@@ -331,15 +299,6 @@ jobs:
             ./ssh-keys/CONNECTION_INFO.txt
           retention-days: 7
 
-      - name: Upload Production SSH Key
-        uses: actions/upload-artifact@v4
-        with:
-          name: prod-ssh-credentials
-          path: |
-            ./ssh-keys/prod_ssh_private_key.pem
-            ./ssh-keys/CONNECTION_INFO.txt
-          retention-days: 7
-
       - name: Display Deployment Summary
         run: |
           echo "================================================"
@@ -359,13 +318,6 @@ jobs:
           echo "  Location: ${{ steps.load_config.outputs.staging_vm_location }}"
           echo "  IP: ${{ steps.vm_details.outputs.staging_vm_ip }}"
           echo "  Connect: ssh -i staging_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.staging_vm_ip }}"
-          echo ""
-          echo "✓ Production Environment:"
-          echo "  VM: ${{ steps.vm_details.outputs.prod_vm_name }}"
-          echo "  Size: ${{ steps.load_config.outputs.prod_vm_size }}"
-          echo "  Location: ${{ steps.load_config.outputs.prod_vm_location }}"
-          echo "  IP: ${{ steps.vm_details.outputs.prod_vm_ip }}"
-          echo "  Connect: ssh -i prod_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.prod_vm_ip }}"
           echo ""
           echo "📦 Download SSH keys from Actions > Artifacts"
           echo "================================================"

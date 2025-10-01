@@ -44,21 +44,6 @@ variable "staging_vm_location" {
   type        = string
 }
 
-variable "prod_vm_name" {
-  description = "Name for the production VM"
-  type        = string
-}
-
-variable "prod_vm_size" {
-  description = "Size for the production VM"
-  type        = string
-}
-
-variable "prod_vm_location" {
-  description = "Location for the production VM"
-  type        = string
-}
-
 # Local variables for environment configuration
 locals {
   environments = {
@@ -77,14 +62,6 @@ locals {
       vnet_cidr   = "10.1.0.0/16"
       subnet_cidr = "10.1.1.0/24"
       ssh_key     = "~/.ssh/id_rsa_staging.pub"
-    }
-    prod = {
-      vm_name     = var.prod_vm_name
-      vm_size     = var.prod_vm_size
-      vm_location = var.prod_vm_location
-      vnet_cidr   = "10.2.0.0/16"
-      subnet_cidr = "10.2.1.0/24"
-      ssh_key     = "~/.ssh/id_rsa_prod.pub"
     }
   }
 }
@@ -350,32 +327,6 @@ output "staging_ssh_command" {
   description = "SSH command to connect to the staging VM"
 }
 
-# Production Environment Outputs
-output "prod_vm_name" {
-  value       = azurerm_linux_virtual_machine.vm["prod"].name
-  description = "Name of the production VM"
-}
-
-output "prod_vm_public_ip" {
-  value       = azurerm_public_ip.pip["prod"].ip_address
-  description = "Public IP address of the production VM"
-}
-
-output "prod_vm_size" {
-  value       = azurerm_linux_virtual_machine.vm["prod"].size
-  description = "Size of the production VM"
-}
-
-output "prod_vm_location" {
-  value       = azurerm_linux_virtual_machine.vm["prod"].location
-  description = "Location of the production VM"
-}
-
-output "prod_ssh_command" {
-  value       = "ssh -i prod_ssh_private_key.pem azureuser@${azurerm_public_ip.pip["prod"].ip_address}"
-  description = "SSH command to connect to the production VM"
-}
-
 # Summary output
 output "deployment_summary" {
   value = {
@@ -392,13 +343,6 @@ output "deployment_summary" {
       location  = azurerm_linux_virtual_machine.vm["staging"].location
       public_ip = azurerm_public_ip.pip["staging"].ip_address
       ssh_key   = "staging_ssh_private_key.pem"
-    }
-    prod = {
-      vm_name   = azurerm_linux_virtual_machine.vm["prod"].name
-      vm_size   = azurerm_linux_virtual_machine.vm["prod"].size
-      location  = azurerm_linux_virtual_machine.vm["prod"].location
-      public_ip = azurerm_public_ip.pip["prod"].ip_address
-      ssh_key   = "prod_ssh_private_key.pem"
     }
   }
   description = "Summary of all deployed environments"
