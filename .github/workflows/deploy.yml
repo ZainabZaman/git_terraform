@@ -127,32 +127,62 @@ jobs:
             terraform import azurerm_key_vault_access_policy.policy "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv/objectId/$OBJECT_ID"
           fi
 
-          # Import Dev Environment Resources
-          if az network vnet show --resource-group setup-infra --name fastapi-vnet-dev &>/dev/null; then
-            terraform import azurerm_virtual_network.vnet[\"dev\"] "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-dev"
-          fi
+          # Import Network Security Groups
+          for env in dev staging prod; do
+            if az network nsg show --resource-group setup-infra --name fastapi-nsg-$env &>/dev/null; then
+              terraform import "azurerm_network_security_group.nsg[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/networkSecurityGroups/fastapi-nsg-$env"
+            fi
+          done
 
-          if az network vnet subnet show --resource-group setup-infra --vnet-name fastapi-vnet-dev --name fastapi-subnet-dev &>/dev/null; then
-            terraform import azurerm_subnet.subnet[\"dev\"] "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-dev/subnets/fastapi-subnet-dev"
-          fi
+          # Import Virtual Networks
+          for env in dev staging prod; do
+            if az network vnet show --resource-group setup-infra --name fastapi-vnet-$env &>/dev/null; then
+              terraform import "azurerm_virtual_network.vnet[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-$env"
+            fi
+          done
 
-          # Import Staging Environment Resources
-          if az network vnet show --resource-group setup-infra --name fastapi-vnet-staging &>/dev/null; then
-            terraform import azurerm_virtual_network.vnet[\"staging\"] "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-staging"
-          fi
+          # Import Subnets
+          for env in dev staging prod; do
+            if az network vnet subnet show --resource-group setup-infra --vnet-name fastapi-vnet-$env --name fastapi-subnet-$env &>/dev/null; then
+              terraform import "azurerm_subnet.subnet[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-$env/subnets/fastapi-subnet-$env"
+            fi
+          done
 
-          if az network vnet subnet show --resource-group setup-infra --vnet-name fastapi-vnet-staging --name fastapi-subnet-staging &>/dev/null; then
-            terraform import azurerm_subnet.subnet[\"staging\"] "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-staging/subnets/fastapi-subnet-staging"
-          fi
+          # Import NSG-Subnet Associations
+          for env in dev staging prod; do
+            SUBNET_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-$env/subnets/fastapi-subnet-$env"
+            if az network vnet subnet show --ids $SUBNET_ID &>/dev/null; then
+              terraform import "azurerm_subnet_network_security_group_association.nsg_association[\"$env\"]" "$SUBNET_ID"
+            fi
+          done
 
-          # Import Production Environment Resources
-          if az network vnet show --resource-group setup-infra --name fastapi-vnet-prod &>/dev/null; then
-            terraform import azurerm_virtual_network.vnet[\"prod\"] "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-prod"
-          fi
+          # Import Public IPs
+          for env in dev staging prod; do
+            if az network public-ip show --resource-group setup-infra --name fastapi-vm-ip-$env &>/dev/null; then
+              terraform import "azurerm_public_ip.pip[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/publicIPAddresses/fastapi-vm-ip-$env"
+            fi
+          done
 
-          if az network vnet subnet show --resource-group setup-infra --vnet-name fastapi-vnet-prod --name fastapi-subnet-prod &>/dev/null; then
-            terraform import azurerm_subnet.subnet[\"prod\"] "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-prod/subnets/fastapi-subnet-prod"
-          fi
+          # Import Network Interfaces
+          for env in dev staging prod; do
+            if az network nic show --resource-group setup-infra --name fastapi-nic-$env &>/dev/null; then
+              terraform import "azurerm_network_interface.nic[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/networkInterfaces/fastapi-nic-$env"
+            fi
+          done
+
+          # Import Virtual Machines
+          for env in dev staging prod; do
+            VM_NAME=$(jq -r ".$env.vm_name" vm-config.json)
+            if az vm show --resource-group setup-infra --name $VM_NAME &>/dev/null; then
+              terraform import "azurerm_linux_virtual_machine.vm[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Compute/virtualMachines/$VM_NAME"
+
+              # Import VM Key Vault Access Policy
+              VM_PRINCIPAL_ID=$(az vm show --resource-group setup-infra --name $VM_NAME --query identity.principalId -o tsv)
+              if [ ! -z "$VM_PRINCIPAL_ID" ]; then
+                terraform import "azurerm_key_vault_access_policy.vm_policy[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv/objectId/$VM_PRINCIPAL_ID"
+              fi
+            fi
+          done
 
           set -e
         env:
