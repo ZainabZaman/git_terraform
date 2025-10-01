@@ -85,36 +85,68 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Cleanup Existing Public IPs (if needed)
+      - name: Cleanup Unmanaged Resources
         run: |
-          echo "Checking for existing Public IPs..."
+          echo "========================================="
+          echo "Checking for unmanaged resources..."
+          echo "========================================="
 
           # List all public IPs in the resource group
+          echo "Current Public IPs:"
           az network public-ip list --resource-group setup-infra --output table || true
 
-          # Get count of public IPs in East Asia region
-          EAST_ASIA_COUNT=$(az network public-ip list \
-            --resource-group setup-infra \
-            --query "[?location=='eastasia'] | length(@)" -o tsv || echo "0")
-
-          echo "Public IPs in East Asia: $EAST_ASIA_COUNT"
-
-          # If we have 3 or more IPs in East Asia, we need to clean up or move resources
-          if [ "$EAST_ASIA_COUNT" -ge 3 ]; then
-            echo "WARNING: Public IP quota reached in East Asia region"
-            echo "Current Public IPs:"
-            az network public-ip list --resource-group setup-infra \
-              --query "[?location=='eastasia'].{Name:name, IP:ipAddress, State:provisioningState}" \
-              --output table || true
-
+          # Delete old unmanaged Public IP if it exists
+          if az network public-ip show --resource-group setup-infra --name fastapi-vm-ip &>/dev/null; then
             echo ""
-            echo "To resolve this, you have two options:"
-            echo "1. Delete unused Public IPs manually in Azure Portal"
-            echo "2. Ensure your vm-config.json uses different regions for each environment"
-            echo ""
-            echo "Checking vm-config.json settings..."
-            cat vm-config.json
+            echo "Found old unmanaged Public IP 'fastapi-vm-ip' - checking if it's in use..."
+
+            # Check if it's attached to a NIC
+            NIC_ID=$(az network public-ip show --resource-group setup-infra --name fastapi-vm-ip \
+              --query "ipConfiguration.id" -o tsv 2>/dev/null || echo "")
+
+            if [ -z "$NIC_ID" ] || [ "$NIC_ID" == "null" ]; then
+              echo "Public IP is not attached to any resource. Deleting..."
+              az network public-ip delete --resource-group setup-infra --name fastapi-vm-ip --yes
+              echo "✓ Deleted unmanaged Public IP 'fastapi-vm-ip'"
+            else
+              echo "⚠ Public IP is attached to a NIC. You may need to delete it manually."
+              echo "NIC ID: $NIC_ID"
+            fi
           fi
+
+          # Check for old unmanaged VMs
+          echo ""
+          echo "Checking for old VMs..."
+          az vm list --resource-group setup-infra --query "[].{Name:name, Location:location}" -o table || true
+
+          # Delete old unmanaged VM if it exists (not in our config)
+          if az vm show --resource-group setup-infra --name fastapi-vm &>/dev/null; then
+            echo "Found old VM 'fastapi-vm' - deleting..."
+            az vm delete --resource-group setup-infra --name fastapi-vm --yes || true
+            echo "✓ Deleted old VM"
+          fi
+
+          # Check for old NICs
+          echo ""
+          echo "Checking for old NICs..."
+          OLD_NICS=$(az network nic list --resource-group setup-infra \
+            --query "[?!contains(name, '-dev') && !contains(name, '-staging')].name" -o tsv || echo "")
+
+          if [ ! -z "$OLD_NICS" ]; then
+            echo "Found old NICs to delete:"
+            echo "$OLD_NICS"
+            for nic in $OLD_NICS; do
+              echo "Deleting NIC: $nic"
+              az network nic delete --resource-group setup-infra --name $nic --yes || true
+            done
+          fi
+
+          echo ""
+          echo "========================================="
+          echo "Cleanup completed"
+          echo "========================================="
+          echo "Remaining Public IPs:"
+          az network public-ip list --resource-group setup-infra --output table || true
 
       - name: Import Existing Resources
         run: |
