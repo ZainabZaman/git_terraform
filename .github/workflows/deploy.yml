@@ -2,7 +2,7 @@ name: Deploy VM Infrastructure
 
 on:
   push:
-    branches: [ "main", "terraform_vm_deployment" ]
+    branches: [ "terraform_basic" ]
   workflow_dispatch:
 
 jobs:
