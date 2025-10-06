@@ -13,22 +13,8 @@ provider "azurerm" {
 
 data "azurerm_client_config" "current" {}
 
-# Check if Resource Group already exists
-data "azurerm_resource_group" "existing_rg" {
-  count = 1
-  name  = "Partfiniti-AI-RG"
-
-  lifecycle {
-    postcondition {
-      condition     = self.location != null || self.location == null
-      error_message = "Resource group lookup failed"
-    }
-  }
-}
-
-# Create Resource Group only if it doesn't exist
+# Create Resource Group
 resource "azurerm_resource_group" "rg" {
-  count    = try(data.azurerm_resource_group.existing_rg[0].id, null) != null ? 0 : 1
   name     = "Partfiniti-AI-RG"
   location = "eastus"
 
@@ -37,10 +23,10 @@ resource "azurerm_resource_group" "rg" {
   }
 }
 
-# Local value to use the existing or new RG
+# Local value to reference the RG
 locals {
-  resource_group_name     = try(data.azurerm_resource_group.existing_rg[0].name, azurerm_resource_group.rg[0].name)
-  resource_group_location = try(data.azurerm_resource_group.existing_rg[0].location, azurerm_resource_group.rg[0].location)
+  resource_group_name     = azurerm_resource_group.rg.name
+  resource_group_location = azurerm_resource_group.rg.location
 }
 
 # Key Vault

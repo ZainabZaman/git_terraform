@@ -172,9 +172,12 @@ jobs:
 
           echo "Attempting to import any remaining resources..."
 
-          # Import Resource Group
-          terraform import azurerm_resource_group.rg[0] \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI-RG 2>/dev/null || true
+          # Import Resource Group (if exists)
+          if az group show --name Partfiniti-AI-RG &>/dev/null; then
+            echo "Found existing resource group, importing..."
+            terraform import azurerm_resource_group.rg \
+              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI-RG 2>/dev/null || true
+          fi
 
           # Check if Key Vault exists and import
           KV_NAME=$(az keyvault list --resource-group Partfiniti-AI-RG --query "[0].name" -o tsv 2>/dev/null || echo "")
