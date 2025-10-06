@@ -1,15 +1,16 @@
-name: Deploy FastAPI
+name: Deploy VM Infrastructure
 
 on:
   push:
-    branches: [ "terraform_basic" ]
+    branches: [ "terraform_vm_deployment" ]
+  workflow_dispatch:
 
 jobs:
-  build-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
       - name: Login to Azure
         uses: azure/login@v1
@@ -21,222 +22,48 @@ jobs:
         with:
           terraform_wrapper: false
 
-      - name: Load VM Configuration
-        id: load_config
-        run: |
-          # Read configuration from vm-config.json
-          DEV_VM_NAME=$(jq -r '.dev.vm_name' vm-config.json)
-          DEV_VM_SIZE=$(jq -r '.dev.vm_size' vm-config.json)
-          DEV_VM_LOCATION=$(jq -r '.dev.vm_location' vm-config.json)
-
-          STAGING_VM_NAME=$(jq -r '.staging.vm_name' vm-config.json)
-          STAGING_VM_SIZE=$(jq -r '.staging.vm_size' vm-config.json)
-          STAGING_VM_LOCATION=$(jq -r '.staging.vm_location' vm-config.json)
-
-          # Export to GITHUB_OUTPUT
-          echo "dev_vm_name=$DEV_VM_NAME" >> $GITHUB_OUTPUT
-          echo "dev_vm_size=$DEV_VM_SIZE" >> $GITHUB_OUTPUT
-          echo "dev_vm_location=$DEV_VM_LOCATION" >> $GITHUB_OUTPUT
-
-          echo "staging_vm_name=$STAGING_VM_NAME" >> $GITHUB_OUTPUT
-          echo "staging_vm_size=$STAGING_VM_SIZE" >> $GITHUB_OUTPUT
-          echo "staging_vm_location=$STAGING_VM_LOCATION" >> $GITHUB_OUTPUT
-
-          echo "VM Configuration loaded:"
-          echo "Dev: $DEV_VM_NAME | $DEV_VM_SIZE | $DEV_VM_LOCATION"
-          echo "Staging: $STAGING_VM_NAME | $STAGING_VM_SIZE | $STAGING_VM_LOCATION"
-
-      - name: Generate SSH Keys for All Environments
-        run: |
-          mkdir -p ~/.ssh
-
-          # Generate SSH key for Dev
-          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa_dev -N "" -C "dev-environment"
-          echo "Dev SSH Public Key:"
-          cat ~/.ssh/id_rsa_dev.pub
-
-          # Generate SSH key for Staging
-          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa_staging -N "" -C "staging-environment"
-          echo "Staging SSH Public Key:"
-          cat ~/.ssh/id_rsa_staging.pub
-
-      - name: Create Terraform Variables File
-        run: |
-          cat > terraform.tfvars <<EOF
-          dev_vm_name = "${{ steps.load_config.outputs.dev_vm_name }}"
-          dev_vm_size = "${{ steps.load_config.outputs.dev_vm_size }}"
-          dev_vm_location = "${{ steps.load_config.outputs.dev_vm_location }}"
-
-          staging_vm_name = "${{ steps.load_config.outputs.staging_vm_name }}"
-          staging_vm_size = "${{ steps.load_config.outputs.staging_vm_size }}"
-          staging_vm_location = "${{ steps.load_config.outputs.staging_vm_location }}"
-
-          EOF
-
       - name: Terraform Init
         run: terraform init
 
-      - name: Check if Resource Group exists
-        id: check_rg
+      - name: Import Existing Resources (if any)
         run: |
-          if az group show --name setup-infra &>/dev/null; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Cleanup Unmanaged Resources
-        run: |
-          echo "========================================="
-          echo "Checking for unmanaged resources..."
-          echo "========================================="
-
-          # List all public IPs in the resource group
-          echo "Current Public IPs:"
-          az network public-ip list --resource-group setup-infra --output table || true
-
-          # Delete old unmanaged Public IP if it exists
-          if az network public-ip show --resource-group setup-infra --name fastapi-vm-ip &>/dev/null; then
-            echo ""
-            echo "Found old unmanaged Public IP 'fastapi-vm-ip' - checking if it's in use..."
-
-            # Check if it's attached to a NIC
-            NIC_ID=$(az network public-ip show --resource-group setup-infra --name fastapi-vm-ip \
-              --query "ipConfiguration.id" -o tsv 2>/dev/null || echo "")
-
-            if [ -z "$NIC_ID" ] || [ "$NIC_ID" == "null" ]; then
-              echo "Public IP is not attached to any resource. Deleting..."
-              az network public-ip delete --resource-group setup-infra --name fastapi-vm-ip --yes
-              echo "✓ Deleted unmanaged Public IP 'fastapi-vm-ip'"
-            else
-              echo "⚠ Public IP is attached to a NIC. You may need to delete it manually."
-              echo "NIC ID: $NIC_ID"
-            fi
-          fi
-
-          # Check for old unmanaged VMs
-          echo ""
-          echo "Checking for old VMs..."
-          az vm list --resource-group setup-infra --query "[].{Name:name, Location:location}" -o table || true
-
-          # Delete old unmanaged VM if it exists (not in our config)
-          if az vm show --resource-group setup-infra --name fastapi-vm &>/dev/null; then
-            echo "Found old VM 'fastapi-vm' - deleting..."
-            az vm delete --resource-group setup-infra --name fastapi-vm --yes || true
-            echo "✓ Deleted old VM"
-          fi
-
-          # Check for old NICs
-          echo ""
-          echo "Checking for old NICs..."
-          OLD_NICS=$(az network nic list --resource-group setup-infra \
-            --query "[?!contains(name, '-dev') && !contains(name, '-staging')].name" -o tsv || echo "")
-
-          if [ ! -z "$OLD_NICS" ]; then
-            echo "Found old NICs to delete:"
-            echo "$OLD_NICS"
-            for nic in $OLD_NICS; do
-              echo "Deleting NIC: $nic"
-              az network nic delete --resource-group setup-infra --name $nic --yes || true
-            done
-          fi
-
-          echo ""
-          echo "========================================="
-          echo "Cleanup completed"
-          echo "========================================="
-          echo "Remaining Public IPs:"
-          az network public-ip list --resource-group setup-infra --output table || true
-
-      - name: Import Existing Resources
-        run: |
-          set +e  # Don't fail on import errors
-
-          SUBSCRIPTION_ID="${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}"
+          set +e
 
           # Import Resource Group
-          if [ "${{ steps.check_rg.outputs.exists }}" == "true" ]; then
-            echo "Importing Resource Group..."
-            terraform import azurerm_resource_group.rg "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra" || true
+          terraform import azurerm_resource_group.rg \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI || true
+
+          # Check if Key Vault exists and import
+          KV_NAME=$(az keyvault list --resource-group Partfiniti-AI --query "[0].name" -o tsv 2>/dev/null || echo "")
+          if [ ! -z "$KV_NAME" ]; then
+            echo "Found existing Key Vault: $KV_NAME"
+            terraform import azurerm_key_vault.kv \
+              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.KeyVault/vaults/$KV_NAME || true
           fi
 
-          # Import Key Vault
-          if az keyvault show --name setup-infra-kv &>/dev/null; then
-            echo "Importing Key Vault..."
-            terraform import azurerm_key_vault.kv "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv" || true
-          fi
+          # Import VNet
+          terraform import azurerm_virtual_network.vnet \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/virtualNetworks/Partfiniti-AI-vnet || true
 
-          # Get Service Principal Object ID
-          OBJECT_ID=$(az ad sp list --filter "appId eq '${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}'" --query "[].id" -o tsv)
-          echo "SP_OBJECT_ID=$OBJECT_ID" >> $GITHUB_ENV
+          # Import Subnet
+          terraform import azurerm_subnet.subnet \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/virtualNetworks/Partfiniti-AI-vnet/subnets/default || true
 
-          # Import SP Access Policy
-          if az keyvault show --name setup-infra-kv &>/dev/null; then
-            echo "Importing Key Vault Access Policy..."
-            terraform import azurerm_key_vault_access_policy.policy "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv/objectId/$OBJECT_ID" || true
-          fi
+          # Import NSG
+          terraform import azurerm_network_security_group.nsg \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/networkSecurityGroups/LLM-staging-nsg || true
 
-          # Import resources for each environment
-          for env in dev staging; do
-            echo "========================================="
-            echo "Importing resources for $env environment"
-            echo "========================================="
+          # Import Public IP
+          terraform import azurerm_public_ip.pip \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/publicIPAddresses/LLM-staging-ip || true
 
-            # Import Network Security Groups
-            if az network nsg show --resource-group setup-infra --name fastapi-nsg-$env &>/dev/null; then
-              echo "Importing NSG for $env..."
-              terraform import "azurerm_network_security_group.nsg[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/networkSecurityGroups/fastapi-nsg-$env" || true
-            fi
+          # Import NIC
+          terraform import azurerm_network_interface.nic \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/networkInterfaces/llm-staging-nic || true
 
-            # Import Virtual Networks
-            if az network vnet show --resource-group setup-infra --name fastapi-vnet-$env &>/dev/null; then
-              echo "Importing VNet for $env..."
-              terraform import "azurerm_virtual_network.vnet[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-$env" || true
-            fi
-
-            # Import Subnets
-            if az network vnet subnet show --resource-group setup-infra --vnet-name fastapi-vnet-$env --name fastapi-subnet-$env &>/dev/null; then
-              echo "Importing Subnet for $env..."
-              terraform import "azurerm_subnet.subnet[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-$env/subnets/fastapi-subnet-$env" || true
-            fi
-
-            # Import NSG-Subnet Associations
-            SUBNET_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/virtualNetworks/fastapi-vnet-$env/subnets/fastapi-subnet-$env"
-            if az network vnet subnet show --ids $SUBNET_ID &>/dev/null; then
-              echo "Importing NSG-Subnet association for $env..."
-              terraform import "azurerm_subnet_network_security_group_association.nsg_association[\"$env\"]" "$SUBNET_ID" || true
-            fi
-
-            # Import Public IPs
-            if az network public-ip show --resource-group setup-infra --name fastapi-vm-ip-$env &>/dev/null; then
-              echo "Importing Public IP for $env..."
-              terraform import "azurerm_public_ip.pip[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/publicIPAddresses/fastapi-vm-ip-$env" || true
-            fi
-
-            # Import Network Interfaces
-            if az network nic show --resource-group setup-infra --name fastapi-nic-$env &>/dev/null; then
-              echo "Importing Network Interface for $env..."
-              terraform import "azurerm_network_interface.nic[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Network/networkInterfaces/fastapi-nic-$env" || true
-            fi
-
-            # Import Virtual Machines
-            VM_NAME=$(jq -r ".$env.vm_name" vm-config.json)
-            if az vm show --resource-group setup-infra --name $VM_NAME &>/dev/null; then
-              echo "Importing VM for $env: $VM_NAME..."
-              terraform import "azurerm_linux_virtual_machine.vm[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.Compute/virtualMachines/$VM_NAME" || true
-
-              # Import VM Key Vault Access Policy
-              VM_PRINCIPAL_ID=$(az vm show --resource-group setup-infra --name $VM_NAME --query identity.principalId -o tsv 2>/dev/null)
-              if [ ! -z "$VM_PRINCIPAL_ID" ] && [ "$VM_PRINCIPAL_ID" != "null" ]; then
-                echo "Importing Key Vault Access Policy for $env VM..."
-                terraform import "azurerm_key_vault_access_policy.vm_policy[\"$env\"]" "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/setup-infra/providers/Microsoft.KeyVault/vaults/setup-infra-kv/objectId/$VM_PRINCIPAL_ID" || true
-              fi
-            fi
-          done
-
-          echo "========================================="
-          echo "Import process completed"
-          echo "========================================="
+          # Import VM
+          terraform import azurerm_linux_virtual_machine.vm \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Compute/virtualMachines/LLM-staging || true
 
           set -e
         env:
@@ -246,7 +73,7 @@ jobs:
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
       - name: Terraform Plan
-        run: terraform plan
+        run: terraform plan -out=tfplan
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
@@ -254,102 +81,129 @@ jobs:
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve
+        run: terraform apply -auto-approve tfplan
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}
           ARM_SUBSCRIPTION_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}
           ARM_TENANT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).tenantId }}
 
-      - name: Get VM Connection Details
-        id: vm_details
+      - name: Get Terraform Outputs
+        id: tf_outputs
         run: |
-          echo "dev_vm_ip=$(terraform output -raw dev_vm_public_ip)" >> $GITHUB_OUTPUT
-          echo "staging_vm_ip=$(terraform output -raw staging_vm_public_ip)" >> $GITHUB_OUTPUT
+          VM_IP=$(terraform output -raw vm_public_ip)
+          KV_NAME=$(terraform output -raw key_vault_name)
+          SSH_SECRET=$(terraform output -raw ssh_private_key_secret_name)
 
-          echo "dev_vm_name=$(terraform output -raw dev_vm_name)" >> $GITHUB_OUTPUT
-          echo "staging_vm_name=$(terraform output -raw staging_vm_name)" >> $GITHUB_OUTPUT
+          echo "vm_ip=$VM_IP" >> $GITHUB_ENV
+          echo "kv_name=$KV_NAME" >> $GITHUB_ENV
+          echo "ssh_secret_name=$SSH_SECRET" >> $GITHUB_ENV
 
-      - name: Prepare SSH Keys for Upload
+          echo "### Deployment Complete! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**VM Public IP:** \`$VM_IP\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Key Vault Name:** \`$KV_NAME\`" >> $GITHUB_STEP_SUMMARY
+          echo "**SSH Key Secret:** \`$SSH_SECRET\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Retrieve SSH Private Key from Key Vault
         run: |
-          mkdir -p ./ssh-keys
+          echo "Retrieving SSH private key from Key Vault..."
+          az keyvault secret show \
+            --vault-name ${{ env.kv_name }} \
+            --name ${{ env.ssh_secret_name }} \
+            --query value -o tsv > ~/.ssh/llm_staging_key
 
-          # Dev SSH Key
-          cp ~/.ssh/id_rsa_dev ./ssh-keys/dev_ssh_private_key.pem
-          chmod 600 ./ssh-keys/dev_ssh_private_key.pem
+          chmod 600 ~/.ssh/llm_staging_key
+          echo "SSH private key saved to ~/.ssh/llm_staging_key"
 
-          # Staging SSH Key
-          cp ~/.ssh/id_rsa_staging ./ssh-keys/staging_ssh_private_key.pem
-          chmod 600 ./ssh-keys/staging_ssh_private_key.pem
+      - name: Test SSH Connection
+        run: |
+          echo "Testing SSH connection to VM..."
+          ssh-keyscan -H ${{ env.vm_ip }} >> ~/.ssh/known_hosts 2>/dev/null
 
-          # Create connection info file
-          cat > ./ssh-keys/CONNECTION_INFO.txt <<EOF
-          ================================================
-          DEPLOYMENT CREDENTIALS - ALL ENVIRONMENTS
-          ================================================
+          # Test connection
+          ssh -i ~/.ssh/llm_staging_key -o StrictHostKeyChecking=no azureuser@${{ env.vm_ip }} "echo 'SSH connection successful!'"
 
-          ** DEVELOPMENT ENVIRONMENT **
-          VM Name: ${{ steps.vm_details.outputs.dev_vm_name }}
-          VM Size: ${{ steps.load_config.outputs.dev_vm_size }}
-          Location: ${{ steps.load_config.outputs.dev_vm_location }}
-          IP Address: ${{ steps.vm_details.outputs.dev_vm_ip }}
-          Username: azureuser
-          SSH Key: dev_ssh_private_key.pem
-          SSH Command: ssh -i dev_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.dev_vm_ip }}
+      - name: Display Connection Information
+        run: |
+          echo "============================================"
+          echo "VM Connection Information"
+          echo "============================================"
+          echo ""
+          echo "Public IP: ${{ env.vm_ip }}"
+          echo "Username: azureuser"
+          echo "Key Vault: ${{ env.kv_name }}"
+          echo ""
+          echo "To connect to your VM:"
+          echo "1. Retrieve SSH key:"
+          echo "   az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > ~/.ssh/llm_staging_key"
+          echo "   chmod 600 ~/.ssh/llm_staging_key"
+          echo ""
+          echo "2. Connect via SSH:"
+          echo "   ssh -i ~/.ssh/llm_staging_key azureuser@${{ env.vm_ip }}"
+          echo ""
+          echo "To retrieve application secret:"
+          echo "   az keyvault secret show --vault-name ${{ env.kv_name }} --name app-secret --query value -o tsv"
+          echo "============================================"
 
-          ** STAGING ENVIRONMENT **
-          VM Name: ${{ steps.vm_details.outputs.staging_vm_name }}
-          VM Size: ${{ steps.load_config.outputs.staging_vm_size }}
-          Location: ${{ steps.load_config.outputs.staging_vm_location }}
-          IP Address: ${{ steps.vm_details.outputs.staging_vm_ip }}
-          Username: azureuser
-          SSH Key: staging_ssh_private_key.pem
-          SSH Command: ssh -i staging_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.staging_vm_ip }}
+          # Also save to GitHub Summary
+          echo "## SSH Connection Instructions" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "# Retrieve SSH private key" >> $GITHUB_STEP_SUMMARY
+          echo "az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > ~/.ssh/llm_staging_key" >> $GITHUB_STEP_SUMMARY
+          echo "chmod 600 ~/.ssh/llm_staging_key" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Connect to VM" >> $GITHUB_STEP_SUMMARY
+          echo "ssh -i ~/.ssh/llm_staging_key azureuser@${{ env.vm_ip }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
-          ** KEY VAULT **
-          Name: setup-infra-kv
-          Access: az keyvault secret show --vault-name setup-infra-kv --name <secret-name>
+      - name: Setup and Deploy Application (Optional)
+        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[deploy-app]')
+        run: |
+          echo "Deploying application to VM..."
 
-          ================================================
+          ssh -i ~/.ssh/llm_staging_key azureuser@${{ env.vm_ip }} << 'EOF'
+            # Update system
+            sudo apt update -y
+            sudo apt install -y python3 python3-pip git screen curl jq
+
+            # Install Azure CLI
+            curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+            # Get access token using managed identity
+            ACCESS_TOKEN=$(curl -s -H "Metadata: true" \
+              "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net/" \
+              | jq -r '.access_token')
+
+            # Get secret from Key Vault
+            SECRET_VALUE=$(curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
+              "https://${{ env.kv_name }}.vault.azure.net/secrets/app-secret?api-version=2016-10-01" \
+              | jq -r '.value')
+
+            # Clone repository
+            cd /home/azureuser
+            if [ -d "git_terraform" ]; then
+              cd git_terraform
+              git pull
+            else
+              git clone https://github.com/ZainabZaman/git_terraform.git
+              cd git_terraform
+            fi
+
+            # Create .env file
+            echo "MY_SECRET=$SECRET_VALUE" > .env
+
+            # Install dependencies
+            pip3 install fastapi uvicorn python-dotenv
+
+            # Kill existing session if running
+            screen -X -S fastapi_session quit 2>/dev/null || true
+
+            # Start FastAPI in screen session
+            screen -dmS fastapi_session bash -c 'cd /home/azureuser/git_terraform && python3 -m uvicorn main:app --host 0.0.0.0 --port 8000'
+
+            echo "Application deployed successfully!"
           EOF
 
-      - name: Upload Development SSH Key
-        uses: actions/upload-artifact@v4
-        with:
-          name: dev-ssh-credentials
-          path: |
-            ./ssh-keys/dev_ssh_private_key.pem
-            ./ssh-keys/CONNECTION_INFO.txt
-          retention-days: 7
-
-      - name: Upload Staging SSH Key
-        uses: actions/upload-artifact@v4
-        with:
-          name: staging-ssh-credentials
-          path: |
-            ./ssh-keys/staging_ssh_private_key.pem
-            ./ssh-keys/CONNECTION_INFO.txt
-          retention-days: 7
-
-      - name: Display Deployment Summary
-        run: |
-          echo "================================================"
-          echo "     MULTI-ENVIRONMENT DEPLOYMENT SUMMARY"
-          echo "================================================"
-          echo ""
-          echo "✓ Development Environment:"
-          echo "  VM: ${{ steps.vm_details.outputs.dev_vm_name }}"
-          echo "  Size: ${{ steps.load_config.outputs.dev_vm_size }}"
-          echo "  Location: ${{ steps.load_config.outputs.dev_vm_location }}"
-          echo "  IP: ${{ steps.vm_details.outputs.dev_vm_ip }}"
-          echo "  Connect: ssh -i dev_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.dev_vm_ip }}"
-          echo ""
-          echo "✓ Staging Environment:"
-          echo "  VM: ${{ steps.vm_details.outputs.staging_vm_name }}"
-          echo "  Size: ${{ steps.load_config.outputs.staging_vm_size }}"
-          echo "  Location: ${{ steps.load_config.outputs.staging_vm_location }}"
-          echo "  IP: ${{ steps.vm_details.outputs.staging_vm_ip }}"
-          echo "  Connect: ssh -i staging_ssh_private_key.pem azureuser@${{ steps.vm_details.outputs.staging_vm_ip }}"
-          echo ""
-          echo "📦 Download SSH keys from Actions > Artifacts"
-          echo "================================================"
+          echo "Application should be available at: http://${{ env.vm_ip }}:8000"
