@@ -2,7 +2,7 @@ name: Deploy VM Infrastructure
 
 on:
   push:
-    branches: [ "terraform_basic" ]
+    branches: [ "main", "terraform_vm_deployment" ]
   workflow_dispatch:
 
 jobs:
@@ -21,6 +21,15 @@ jobs:
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_wrapper: false
+
+      - name: Check Allowed Azure Regions
+        run: |
+          echo "Checking allowed regions for your subscription..."
+          az account list-locations --query "[].{Name:name, DisplayName:displayName}" -o table
+
+          echo ""
+          echo "Existing Resource Group location:"
+          az group show --name Partfiniti-AI --query location -o tsv || echo "Resource group doesn't exist yet"
 
       - name: Terraform Init
         run: terraform init

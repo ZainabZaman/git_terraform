@@ -13,21 +13,41 @@ provider "azurerm" {
 
 data "azurerm_client_config" "current" {}
 
-# Resource Group
+# Check if Resource Group already exists
+data "azurerm_resource_group" "existing_rg" {
+  count = 1
+  name  = "Partfiniti-AI"
+
+  lifecycle {
+    postcondition {
+      condition     = self.location != null || self.location == null
+      error_message = "Resource group lookup failed"
+    }
+  }
+}
+
+# Create Resource Group only if it doesn't exist
 resource "azurerm_resource_group" "rg" {
+  count    = try(data.azurerm_resource_group.existing_rg[0].id, null) != null ? 0 : 1
   name     = "Partfiniti-AI"
-  location = "East US"
+  location = "eastus"
 
   lifecycle {
     prevent_destroy = true
   }
 }
 
+# Local value to use the existing or new RG
+locals {
+  resource_group_name     = try(data.azurerm_resource_group.existing_rg[0].name, azurerm_resource_group.rg[0].name)
+  resource_group_location = try(data.azurerm_resource_group.existing_rg[0].location, azurerm_resource_group.rg[0].location)
+}
+
 # Key Vault
 resource "azurerm_key_vault" "kv" {
   name                = "partfiniti-kv-${random_string.kv_suffix.result}"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = local.resource_group_location
+  resource_group_name = local.resource_group_name
   tenant_id           = data.azurerm_client_config.current.tenant_id
   sku_name            = "standard"
 
@@ -87,14 +107,14 @@ resource "tls_private_key" "ssh" {
 resource "azurerm_virtual_network" "vnet" {
   name                = "Partfiniti-AI-vnet"
   address_space       = ["10.0.0.0/16"]
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = local.resource_group_location
+  resource_group_name = local.resource_group_name
 }
 
 # Subnet
 resource "azurerm_subnet" "subnet" {
   name                 = "default"
-  resource_group_name  = azurerm_resource_group.rg.name
+  resource_group_name  = local.resource_group_name
   virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = ["10.0.0.0/24"]
 }
@@ -102,8 +122,8 @@ resource "azurerm_subnet" "subnet" {
 # Network Security Group
 resource "azurerm_network_security_group" "nsg" {
   name                = "LLM-staging-nsg"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = local.resource_group_location
+  resource_group_name = local.resource_group_name
 
   security_rule {
     name                       = "SSH"
@@ -145,8 +165,8 @@ resource "azurerm_network_security_group" "nsg" {
 # Public IP
 resource "azurerm_public_ip" "pip" {
   name                = "LLM-staging-ip"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = local.resource_group_location
+  resource_group_name = local.resource_group_name
   allocation_method   = "Static"
   sku                 = "Standard"
   zones               = ["1"]
@@ -155,8 +175,8 @@ resource "azurerm_public_ip" "pip" {
 # Network Interface
 resource "azurerm_network_interface" "nic" {
   name                = "llm-staging-nic"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+  location            = local.resource_group_location
+  resource_group_name = local.resource_group_name
 
   ip_configuration {
     name                          = "internal"
@@ -175,8 +195,8 @@ resource "azurerm_network_interface_security_group_association" "nsg_association
 # Virtual Machine
 resource "azurerm_linux_virtual_machine" "vm" {
   name                = "LLM-staging"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
+  resource_group_name = local.resource_group_name
+  location            = local.resource_group_location
   size                = "Standard_D4s_v3"
   zone                = "1"
   admin_username      = "azureuser"
@@ -226,8 +246,13 @@ resource "azurerm_key_vault_access_policy" "vm_policy" {
 
 # Outputs
 output "resource_group_name" {
-  value       = azurerm_resource_group.rg.name
+  value       = local.resource_group_name
   description = "The name of the resource group"
+}
+
+output "resource_group_location" {
+  value       = local.resource_group_location
+  description = "The location of the resource group"
 }
 
 output "vm_name" {
