@@ -2,8 +2,17 @@ name: Deploy VM Infrastructure
 
 on:
   push:
-    branches: [ "terraform_basic" ]
+    branches: [ "main", "terraform_vm_deployment" ]
   workflow_dispatch:
+    inputs:
+      destroy_existing:
+        description: 'Destroy existing resources before deployment'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 jobs:
   deploy:
@@ -31,6 +40,129 @@ jobs:
           echo "Existing Resource Group location:"
           az group show --name Partfiniti-AI --query location -o tsv || echo "Resource group doesn't exist yet"
 
+      - name: Clean Up Existing Deployments
+        if: github.event.inputs.destroy_existing == 'true' || github.event_name == 'push'
+        run: |
+          echo "============================================"
+          echo "Cleaning up existing resources..."
+          echo "============================================"
+
+          RG_NAME="Partfiniti-AI"
+
+          # Check if resource group exists
+          if az group show --name $RG_NAME &>/dev/null; then
+            echo "Resource group '$RG_NAME' exists. Proceeding with cleanup..."
+
+            # Delete VM first (if exists)
+            echo "Deleting Virtual Machine (if exists)..."
+            VM_EXISTS=$(az vm list -g $RG_NAME --query "[?name=='LLM-staging'].name" -o tsv)
+            if [ ! -z "$VM_EXISTS" ]; then
+              echo "Found VM: LLM-staging. Deleting..."
+              az vm delete --resource-group $RG_NAME --name LLM-staging --yes --no-wait
+              echo "VM deletion initiated (running in background)..."
+            else
+              echo "No VM found named 'LLM-staging'"
+            fi
+
+            # Wait a bit for VM deletion to start
+            sleep 10
+
+            # Delete Network Interface (if exists)
+            echo "Deleting Network Interface (if exists)..."
+            NIC_EXISTS=$(az network nic list -g $RG_NAME --query "[?name=='llm-staging-nic'].name" -o tsv)
+            if [ ! -z "$NIC_EXISTS" ]; then
+              echo "Found NIC: llm-staging-nic. Deleting..."
+              az network nic delete --resource-group $RG_NAME --name llm-staging-nic --no-wait
+            fi
+
+            # Delete Public IP (if exists)
+            echo "Deleting Public IP (if exists)..."
+            PIP_EXISTS=$(az network public-ip list -g $RG_NAME --query "[?name=='LLM-staging-ip'].name" -o tsv)
+            if [ ! -z "$PIP_EXISTS" ]; then
+              echo "Found Public IP: LLM-staging-ip. Deleting..."
+              az network public-ip delete --resource-group $RG_NAME --name LLM-staging-ip --no-wait
+            fi
+
+            # Delete NSG Association and NSG (if exists)
+            echo "Deleting Network Security Group (if exists)..."
+            NSG_EXISTS=$(az network nsg list -g $RG_NAME --query "[?name=='LLM-staging-nsg'].name" -o tsv)
+            if [ ! -z "$NSG_EXISTS" ]; then
+              echo "Found NSG: LLM-staging-nsg. Deleting..."
+              az network nsg delete --resource-group $RG_NAME --name LLM-staging-nsg --no-wait
+            fi
+
+            # Delete Subnet (if exists and not in use)
+            echo "Deleting Subnet (if exists)..."
+            SUBNET_EXISTS=$(az network vnet subnet list -g $RG_NAME --vnet-name Partfiniti-AI-vnet --query "[?name=='default'].name" -o tsv 2>/dev/null || echo "")
+            if [ ! -z "$SUBNET_EXISTS" ]; then
+              echo "Found Subnet: default. Will be deleted with VNet..."
+            fi
+
+            # Wait for network resources to be deleted
+            echo "Waiting for network resources to be deleted (30 seconds)..."
+            sleep 30
+
+            # Delete VNet (if exists)
+            echo "Deleting Virtual Network (if exists)..."
+            VNET_EXISTS=$(az network vnet list -g $RG_NAME --query "[?name=='Partfiniti-AI-vnet'].name" -o tsv)
+            if [ ! -z "$VNET_EXISTS" ]; then
+              echo "Found VNet: Partfiniti-AI-vnet. Deleting..."
+              az network vnet delete --resource-group $RG_NAME --name Partfiniti-AI-vnet --no-wait
+            fi
+
+            # Delete Key Vault (if exists) - with purge protection handling
+            echo "Deleting Key Vault (if exists)..."
+            KV_LIST=$(az keyvault list -g $RG_NAME --query "[].name" -o tsv)
+            for KV_NAME in $KV_LIST; do
+              if [[ $KV_NAME == partfiniti-kv-* ]]; then
+                echo "Found Key Vault: $KV_NAME. Deleting..."
+                az keyvault delete --name $KV_NAME --resource-group $RG_NAME --no-wait
+
+                # Purge the key vault to allow recreation with same name
+                echo "Purging Key Vault: $KV_NAME..."
+                az keyvault purge --name $KV_NAME --no-wait 2>/dev/null || echo "Key Vault purge initiated or already purged"
+              fi
+            done
+
+            echo ""
+            echo "Waiting for all deletions to complete (60 seconds)..."
+            sleep 60
+
+            echo ""
+            echo "============================================"
+            echo "Cleanup completed!"
+            echo "============================================"
+          else
+            echo "Resource group '$RG_NAME' does not exist. Nothing to clean up."
+          fi
+
+      - name: Delete Resource Group (Optional - Full Clean)
+        if: github.event.inputs.destroy_existing == 'true' && contains(github.event.head_commit.message, '[full-clean]')
+        run: |
+          echo "============================================"
+          echo "FULL CLEAN: Deleting entire resource group..."
+          echo "============================================"
+
+          RG_NAME="Partfiniti-AI"
+
+          if az group show --name $RG_NAME &>/dev/null; then
+            echo "Deleting resource group: $RG_NAME"
+            az group delete --name $RG_NAME --yes --no-wait
+
+            echo "Waiting for resource group deletion to complete..."
+            # Wait for resource group to be deleted (max 5 minutes)
+            for i in {1..30}; do
+              if ! az group show --name $RG_NAME &>/dev/null; then
+                echo "Resource group deleted successfully!"
+                break
+              fi
+              echo "Still deleting... ($i/30)"
+              sleep 10
+            done
+          else
+            echo "Resource group does not exist."
+          fi
+
       - name: Terraform Init
         run: terraform init
 
@@ -38,43 +170,47 @@ jobs:
         run: |
           set +e
 
+          echo "Attempting to import any remaining resources..."
+
           # Import Resource Group
-          terraform import azurerm_resource_group.rg \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI || true
+          terraform import azurerm_resource_group.rg[0] \
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI 2>/dev/null || true
 
           # Check if Key Vault exists and import
           KV_NAME=$(az keyvault list --resource-group Partfiniti-AI --query "[0].name" -o tsv 2>/dev/null || echo "")
           if [ ! -z "$KV_NAME" ]; then
             echo "Found existing Key Vault: $KV_NAME"
             terraform import azurerm_key_vault.kv \
-              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.KeyVault/vaults/$KV_NAME || true
+              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.KeyVault/vaults/$KV_NAME 2>/dev/null || true
           fi
 
           # Import VNet
           terraform import azurerm_virtual_network.vnet \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/virtualNetworks/Partfiniti-AI-vnet || true
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/virtualNetworks/Partfiniti-AI-vnet 2>/dev/null || true
 
           # Import Subnet
           terraform import azurerm_subnet.subnet \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/virtualNetworks/Partfiniti-AI-vnet/subnets/default || true
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/virtualNetworks/Partfiniti-AI-vnet/subnets/default 2>/dev/null || true
 
           # Import NSG
           terraform import azurerm_network_security_group.nsg \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/networkSecurityGroups/LLM-staging-nsg || true
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/networkSecurityGroups/LLM-staging-nsg 2>/dev/null || true
 
           # Import Public IP
           terraform import azurerm_public_ip.pip \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/publicIPAddresses/LLM-staging-ip || true
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/publicIPAddresses/LLM-staging-ip 2>/dev/null || true
 
           # Import NIC
           terraform import azurerm_network_interface.nic \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/networkInterfaces/llm-staging-nic || true
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/networkInterfaces/llm-staging-nic 2>/dev/null || true
 
           # Import VM
           terraform import azurerm_linux_virtual_machine.vm \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Compute/virtualMachines/LLM-staging || true
+            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI/providers/Microsoft.Compute/virtualMachines/LLM-staging 2>/dev/null || true
 
           set -e
+
+          echo "Import phase completed."
         env:
           ARM_CLIENT_ID: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientId }}
           ARM_CLIENT_SECRET: ${{ fromJson(secrets.AZURE_CREDENTIALS).clientSecret }}

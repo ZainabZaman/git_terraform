@@ -33,7 +33,7 @@ resource "azurerm_resource_group" "rg" {
   location = "eastus"
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false  # Changed to allow deletion
   }
 }
 
