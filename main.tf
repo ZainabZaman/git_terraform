@@ -16,7 +16,7 @@ data "azurerm_client_config" "current" {}
 # Check if Resource Group already exists
 data "azurerm_resource_group" "existing_rg" {
   count = 1
-  name  = "Partfiniti-AI"
+  name  = "Partfiniti-AI-RG"
 
   lifecycle {
     postcondition {
@@ -29,11 +29,11 @@ data "azurerm_resource_group" "existing_rg" {
 # Create Resource Group only if it doesn't exist
 resource "azurerm_resource_group" "rg" {
   count    = try(data.azurerm_resource_group.existing_rg[0].id, null) != null ? 0 : 1
-  name     = "Partfiniti-AI"
-  location = "australiaeast"
+  name     = "Partfiniti-AI-RG"
+  location = "eastus"
 
   lifecycle {
-    prevent_destroy = false  # Changed to allow deletion
+    prevent_destroy = false
   }
 }
 
@@ -45,7 +45,7 @@ locals {
 
 # Key Vault
 resource "azurerm_key_vault" "kv" {
-  name                = "partfiniti-kv-${random_string.kv_suffix.result}"
+  name                = "partfiniti-ai-kv-${random_string.kv_suffix.result}"
   location            = local.resource_group_location
   resource_group_name = local.resource_group_name
   tenant_id           = data.azurerm_client_config.current.tenant_id
@@ -105,7 +105,7 @@ resource "tls_private_key" "ssh" {
 
 # Virtual Network
 resource "azurerm_virtual_network" "vnet" {
-  name                = "Partfiniti-AI-vnet"
+  name                = "partfiniti-ai-vnet"
   address_space       = ["10.0.0.0/16"]
   location            = local.resource_group_location
   resource_group_name = local.resource_group_name
@@ -113,7 +113,7 @@ resource "azurerm_virtual_network" "vnet" {
 
 # Subnet
 resource "azurerm_subnet" "subnet" {
-  name                 = "default"
+  name                 = "partfiniti-ai-subnet"
   resource_group_name  = local.resource_group_name
   virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = ["10.0.0.0/24"]
@@ -121,7 +121,7 @@ resource "azurerm_subnet" "subnet" {
 
 # Network Security Group
 resource "azurerm_network_security_group" "nsg" {
-  name                = "LLM-staging-nsg"
+  name                = "partfiniti-ai-vm-nsg"
   location            = local.resource_group_location
   resource_group_name = local.resource_group_name
 
@@ -164,7 +164,7 @@ resource "azurerm_network_security_group" "nsg" {
 
 # Public IP
 resource "azurerm_public_ip" "pip" {
-  name                = "LLM-staging-ip"
+  name                = "partfiniti-ai-vm-pip"
   location            = local.resource_group_location
   resource_group_name = local.resource_group_name
   allocation_method   = "Static"
@@ -174,7 +174,7 @@ resource "azurerm_public_ip" "pip" {
 
 # Network Interface
 resource "azurerm_network_interface" "nic" {
-  name                = "llm-staging-nic"
+  name                = "partfiniti-ai-vm-nic"
   location            = local.resource_group_location
   resource_group_name = local.resource_group_name
 
@@ -194,7 +194,7 @@ resource "azurerm_network_interface_security_group_association" "nsg_association
 
 # Virtual Machine
 resource "azurerm_linux_virtual_machine" "vm" {
-  name                = "LLM-staging"
+  name                = "partfiniti-ai-vm"
   resource_group_name = local.resource_group_name
   location            = local.resource_group_location
   size                = "Standard_D4s_v3"
@@ -213,7 +213,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   }
 
   os_disk {
-    name                 = "LLM-staging_OsDisk"
+    name                 = "partfiniti-ai-vm-osdisk"
     caching              = "ReadWrite"
     storage_account_type = "StandardSSD_LRS"
     disk_size_gb         = 64
@@ -271,7 +271,7 @@ output "vm_private_ip" {
 }
 
 output "ssh_command" {
-  value       = "ssh -i ~/.ssh/llm_staging_key azureuser@${azurerm_public_ip.pip.ip_address}"
+  value       = "ssh -i ~/.ssh/partfiniti_ai_key azureuser@${azurerm_public_ip.pip.ip_address}"
   description = "SSH command to connect to the VM"
 }
 
