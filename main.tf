@@ -30,7 +30,7 @@ data "azurerm_resource_group" "existing_rg" {
 resource "azurerm_resource_group" "rg" {
   count    = try(data.azurerm_resource_group.existing_rg[0].id, null) != null ? 0 : 1
   name     = "Partfiniti-AI"
-  location = "eastus"
+  location = "australiaeast"
 
   lifecycle {
     prevent_destroy = false  # Changed to allow deletion
