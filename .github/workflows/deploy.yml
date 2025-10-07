@@ -272,7 +272,9 @@ jobs:
 
           # Create .ssh directory if it doesn't exist
           mkdir -p ~/.ssh
+          mkdir -p ./ssh-keys
 
+          # Retrieve SSH private key
           az keyvault secret show \
             --vault-name ${{ env.kv_name }} \
             --name ${{ env.ssh_secret_name }} \
@@ -280,6 +282,48 @@ jobs:
 
           chmod 600 ~/.ssh/partfiniti_ai_key
           echo "SSH private key saved to ~/.ssh/partfiniti_ai_key"
+
+          # Copy to artifact directory for download
+          cp ~/.ssh/partfiniti_ai_key ./ssh-keys/partfiniti_ai_key
+
+          # Create connection instructions file
+          cat > ./ssh-keys/CONNECTION_INSTRUCTIONS.txt << EOF
+          ============================================
+          VM Connection Information
+          ============================================
+
+          VM Public IP: ${{ env.vm_ip }}
+          Username: azureuser
+          Key Vault: ${{ env.kv_name }}
+
+          IMPORTANT: Set correct permissions on the SSH key after download:
+            chmod 600 partfiniti_ai_key
+
+          SSH Connection Command:
+            ssh -i partfiniti_ai_key azureuser@${{ env.vm_ip }}
+
+          ============================================
+          Additional Information
+          ============================================
+
+          To retrieve application secret from Key Vault:
+            az keyvault secret show --vault-name ${{ env.kv_name }} --name app-secret --query value -o tsv
+
+          To retrieve SSH key again from Key Vault:
+            az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > partfiniti_ai_key
+            chmod 600 partfiniti_ai_key
+
+          ============================================
+          EOF
+
+          echo "SSH key and instructions prepared for download"
+
+      - name: Upload SSH Key as Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: vm-ssh-key
+          path: ./ssh-keys/
+          retention-days: 7
 
       - name: Test SSH Connection
         run: |
