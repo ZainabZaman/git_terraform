@@ -2,7 +2,7 @@ name: Deploy VM Infrastructure
 
 on:
   push:
-    branches: [ "terraform_dev" ]
+    branches: [ "<YOUR_BRANCH_NAME>" ] # <-- UPDATE THIS TO YOUR BRANCH NAME
   workflow_dispatch:
     inputs:
       destroy_existing:
@@ -234,7 +234,7 @@ jobs:
           if az group show --name partfiniti-AI &>/dev/null; then
             echo "Found existing resource group, importing..."
             terraform import azurerm_resource_group.rg \
-              /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/partfiniti-AI 2>/dev/null || true
+              /subscriptions/<YOUR_AZURE_SUBSCRIPTION_ID>/resourceGroups/partfiniti-AI 2>/dev/null || true
           fi
 
           # Check if Key Vault exists and import
@@ -242,7 +242,7 @@ jobs:
           if [ ! -z "$KV_NAME" ]; then
             echo "Found existing Key Vault: $KV_NAME"
             terraform import azurerm_key_vault.kv \
-              /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/partfiniti-AI/providers/Microsoft.KeyVault/vaults/$KV_NAME 2>/dev/null || true
+              /subscriptions/<YOUR_AZURE_SUBSCRIPTION_ID>/resourceGroups/partfiniti-AI/providers/Microsoft.KeyVault/vaults/$KV_NAME 2>/dev/null || true
           fi
 
           set -e
