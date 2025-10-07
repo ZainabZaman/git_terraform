@@ -319,7 +319,7 @@ jobs:
           echo "SSH key and instructions prepared for download"
 
       - name: Upload SSH Key as Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: vm-ssh-key
           path: ./ssh-keys/
