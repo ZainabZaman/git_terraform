@@ -154,8 +154,9 @@ resource "azurerm_public_ip" "pip" {
   name                = "LLM-1-pip"
   location            = local.resource_group_location
   resource_group_name = local.resource_group_name
-  allocation_method   = "Dynamic"
-  sku                 = "Basic"
+  allocation_method   = "Static"  # Changed from Dynamic
+  sku                 = "Standard" # Changed from Basic
+  zones               = ["1"]     # Added zone to match VM zone
 }
 
 # Network Interface
