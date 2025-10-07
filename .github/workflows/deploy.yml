@@ -444,7 +444,7 @@ jobs:
               cd git_terraform
               git pull
             else
-              git clone https://github.com/ZainabZaman/git_terraform.git
+              git clone <YOUR_GIT_REPO_URL> # <-- UPDATE THIS TO YOUR GIT REPO URL
               cd git_terraform
             fi
 
