@@ -58,98 +58,132 @@ jobs:
           if az group show --name $RG_NAME &>/dev/null; then
             echo "Resource group '$RG_NAME' exists. Proceeding with cleanup..."
 
-            # Delete VM first (if exists) and WAIT for completion
-            echo "Deleting Virtual Machine (if exists)..."
-            VM_EXISTS=$(az vm list -g $RG_NAME --query "[?name=='LLM-uat2'].name" -o tsv)
-            if [ ! -z "$VM_EXISTS" ]; then
-              echo "Found VM: LLM-uat2. Deleting..."
-              az vm delete --resource-group $RG_NAME --name LLM-uat2 --yes
-              echo "VM deleted successfully!"
+            # Step 1: Delete ALL VMs in the resource group
+            echo "Deleting ALL Virtual Machines..."
+            VM_LIST=$(az vm list -g $RG_NAME --query "[].name" -o tsv)
+            if [ ! -z "$VM_LIST" ]; then
+              for VM_NAME in $VM_LIST; do
+                echo "Found VM: $VM_NAME. Deleting..."
+                az vm delete --resource-group $RG_NAME --name $VM_NAME --yes
+                echo "VM $VM_NAME deleted successfully!"
+              done
 
               # Additional wait to ensure Azure backend updates
-              echo "Waiting for Azure to update resource dependencies (15 seconds)..."
-              sleep 15
+              echo "Waiting for Azure to update resource dependencies (20 seconds)..."
+              sleep 20
             else
-              echo "No VM found named 'LLM-uat2'"
+              echo "No VMs found in resource group"
             fi
 
-            # Delete Network Interface (if exists)
-            echo "Deleting Network Interface (if exists)..."
-            NIC_EXISTS=$(az network nic list -g $RG_NAME --query "[?name=='llm-uat2-nic'].name" -o tsv)
-            if [ ! -z "$NIC_EXISTS" ]; then
-              echo "Found NIC: llm-uat2-nic. Deleting..."
-              az network nic delete --resource-group $RG_NAME --name llm-uat2-nic --no-wait
-              echo "NIC deletion initiated..."
+            # Step 2: Disassociate NSGs from ALL NICs
+            echo "Disassociating NSGs from all Network Interfaces..."
+            NIC_LIST=$(az network nic list -g $RG_NAME --query "[].name" -o tsv)
+            if [ ! -z "$NIC_LIST" ]; then
+              for NIC_NAME in $NIC_LIST; do
+                echo "Checking NIC: $NIC_NAME"
+                NSG_ID=$(az network nic show -g $RG_NAME -n $NIC_NAME --query "networkSecurityGroup.id" -o tsv 2>/dev/null || echo "")
+                if [ ! -z "$NSG_ID" ] && [ "$NSG_ID" != "null" ]; then
+                  echo "  Disassociating NSG from NIC: $NIC_NAME"
+                  az network nic update -g $RG_NAME -n $NIC_NAME --remove networkSecurityGroup 2>/dev/null || echo "  Already disassociated or error occurred"
+                fi
+              done
+              echo "Waiting for NSG disassociation to complete (15 seconds)..."
+              sleep 15
             fi
 
-            # Delete Public IP (if exists)
-            echo "Deleting Public IP (if exists)..."
-            PIP_EXISTS=$(az network public-ip list -g $RG_NAME --query "[?name=='LLM-uat2-pip'].name" -o tsv)
-            if [ ! -z "$PIP_EXISTS" ]; then
-              echo "Found Public IP: LLM-uat2-pip. Deleting..."
-              az network public-ip delete --resource-group $RG_NAME --name LLM-uat2-pip --no-wait
-              echo "Public IP deletion initiated..."
+            # Step 3: Delete ALL Network Interfaces
+            echo "Deleting ALL Network Interfaces..."
+            NIC_LIST=$(az network nic list -g $RG_NAME --query "[].name" -o tsv)
+            if [ ! -z "$NIC_LIST" ]; then
+              for NIC_NAME in $NIC_LIST; do
+                echo "Deleting NIC: $NIC_NAME"
+                az network nic delete --resource-group $RG_NAME --name $NIC_NAME --no-wait
+              done
+              echo "NIC deletions initiated..."
             fi
 
-            # Delete NSG (if exists)
-            echo "Deleting Network Security Group (if exists)..."
-            NSG_EXISTS=$(az network nsg list -g $RG_NAME --query "[?name=='partfiniti-ai-vm-nsg'].name" -o tsv)
-            if [ ! -z "$NSG_EXISTS" ]; then
-              echo "Found NSG: partfiniti-ai-vm-nsg. Deleting..."
-              az network nsg delete --resource-group $RG_NAME --name partfiniti-ai-vm-nsg --no-wait
-              echo "NSG deletion initiated..."
+            # Step 4: Delete ALL Public IPs
+            echo "Deleting ALL Public IPs..."
+            PIP_LIST=$(az network public-ip list -g $RG_NAME --query "[].name" -o tsv)
+            if [ ! -z "$PIP_LIST" ]; then
+              for PIP_NAME in $PIP_LIST; do
+                echo "Deleting Public IP: $PIP_NAME"
+                az network public-ip delete --resource-group $RG_NAME --name $PIP_NAME --no-wait
+              done
+              echo "Public IP deletions initiated..."
             fi
 
-            # Delete Subnet (if exists and not in use)
-            echo "Deleting Subnet (if exists)..."
-            SUBNET_EXISTS=$(az network vnet subnet list -g $RG_NAME --vnet-name partfiniti-ai-vnet --query "[?name=='partfiniti-ai-subnet'].name" -o tsv 2>/dev/null || echo "")
-            if [ ! -z "$SUBNET_EXISTS" ]; then
-              echo "Found Subnet: partfiniti-ai-subnet. Will be deleted with VNet..."
-            fi
-
-            # Wait for network resources to be deleted
-            echo "Waiting for network resources to be deleted (30 seconds)..."
+            # Wait for NICs and IPs to be deleted
+            echo "Waiting for NICs and Public IPs to be deleted (30 seconds)..."
             sleep 30
 
-            # Delete VNet (if exists)
-            echo "Deleting Virtual Network (if exists)..."
-            VNET_EXISTS=$(az network vnet list -g $RG_NAME --query "[?name=='partfiniti-ai-vnet'].name" -o tsv)
-            if [ ! -z "$VNET_EXISTS" ]; then
-              echo "Found VNet: partfiniti-ai-vnet. Deleting..."
-              az network vnet delete --resource-group $RG_NAME --name partfiniti-ai-vnet --no-wait
-              echo "VNet deletion initiated..."
+            # Step 5: Delete ALL Network Security Groups
+            echo "Deleting ALL Network Security Groups..."
+            NSG_LIST=$(az network nsg list -g $RG_NAME --query "[].name" -o tsv)
+            if [ ! -z "$NSG_LIST" ]; then
+              for NSG_NAME in $NSG_LIST; do
+                echo "Deleting NSG: $NSG_NAME"
+                az network nsg delete --resource-group $RG_NAME --name $NSG_NAME --no-wait
+              done
+              echo "NSG deletions initiated..."
             fi
 
-            # Delete Key Vault (if exists) - with purge protection handling
-            echo "Deleting Key Vault (if exists)..."
+            # Step 6: Delete ALL Subnets (will be deleted with VNet, but list them)
+            echo "Listing Subnets..."
+            VNET_LIST=$(az network vnet list -g $RG_NAME --query "[].name" -o tsv)
+            for VNET_NAME in $VNET_LIST; do
+              echo "Found VNet: $VNET_NAME"
+              SUBNET_LIST=$(az network vnet subnet list -g $RG_NAME --vnet-name $VNET_NAME --query "[].name" -o tsv 2>/dev/null || echo "")
+              if [ ! -z "$SUBNET_LIST" ]; then
+                echo "  Subnets: $SUBNET_LIST (will be deleted with VNet)"
+              fi
+            done
+
+            # Wait for NSGs to be deleted
+            echo "Waiting for NSGs to be deleted (20 seconds)..."
+            sleep 20
+
+            # Step 7: Delete ALL Virtual Networks
+            echo "Deleting ALL Virtual Networks..."
+            VNET_LIST=$(az network vnet list -g $RG_NAME --query "[].name" -o tsv)
+            if [ ! -z "$VNET_LIST" ]; then
+              for VNET_NAME in $VNET_LIST; do
+                echo "Deleting VNet: $VNET_NAME"
+                az network vnet delete --resource-group $RG_NAME --name $VNET_NAME --no-wait
+              done
+              echo "VNet deletions initiated..."
+            fi
+
+            # Step 8: Delete ALL Key Vaults
+            echo "Deleting ALL Key Vaults..."
             KV_LIST=$(az keyvault list -g $RG_NAME --query "[].name" -o tsv)
-            for KV_NAME in $KV_LIST; do
-              if [[ $KV_NAME == partfiniti-ai-kv-* ]]; then
-                echo "Found Key Vault: $KV_NAME. Deleting..."
+            if [ ! -z "$KV_LIST" ]; then
+              for KV_NAME in $KV_LIST; do
+                echo "Deleting Key Vault: $KV_NAME"
                 az keyvault delete --name $KV_NAME --resource-group $RG_NAME --no-wait
 
                 # Purge the key vault to allow recreation with same name
                 echo "Purging Key Vault: $KV_NAME..."
                 az keyvault purge --name $KV_NAME --no-wait 2>/dev/null || echo "Key Vault purge initiated or already purged"
-              fi
-            done
+              done
+            fi
 
             echo ""
             echo "Waiting for all deletions to complete (60 seconds)..."
             sleep 60
 
-            # Now delete the entire resource group to ensure clean slate
+            # Step 9: Delete the entire resource group for clean slate
             echo "Deleting entire resource group for clean slate..."
             az group delete --name $RG_NAME --yes --no-wait
 
             # Wait for RG deletion
-            echo "Waiting for resource group deletion (up to 2 minutes)..."
-            for i in {1..24}; do
+            echo "Waiting for resource group deletion (up to 3 minutes)..."
+            for i in {1..36}; do
               if ! az group show --name $RG_NAME &>/dev/null; then
                 echo "Resource group deleted successfully!"
                 break
               fi
-              echo "Still deleting... ($i/24)"
+              echo "Still deleting... ($i/36)"
               sleep 5
             done
 
@@ -165,27 +199,26 @@ jobs:
         if: github.event.inputs.destroy_existing == 'true' && contains(github.event.head_commit.message, '[full-clean]')
         run: |
           echo "============================================"
-          echo "FULL CLEAN: Deleting entire resource group..."
+          echo "FULL CLEAN: Ensuring resource group is deleted..."
           echo "============================================"
 
           RG_NAME="partfiniti-AI"
 
           if az group show --name $RG_NAME &>/dev/null; then
-            echo "Deleting resource group: $RG_NAME"
+            echo "Resource group still exists, forcing deletion..."
             az group delete --name $RG_NAME --yes --no-wait
 
             echo "Waiting for resource group deletion to complete..."
-            # Wait for resource group to be deleted (max 5 minutes)
-            for i in {1..30}; do
+            for i in {1..36}; do
               if ! az group show --name $RG_NAME &>/dev/null; then
                 echo "Resource group deleted successfully!"
                 break
               fi
-              echo "Still deleting... ($i/30)"
+              echo "Still deleting... ($i/36)"
               sleep 10
             done
           else
-            echo "Resource group does not exist."
+            echo "Resource group already deleted."
           fi
 
       - name: Terraform Init
@@ -211,30 +244,6 @@ jobs:
             terraform import azurerm_key_vault.kv \
               /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI/providers/Microsoft.KeyVault/vaults/$KV_NAME 2>/dev/null || true
           fi
-
-          # Import VNet
-          terraform import azurerm_virtual_network.vnet \
-            /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI/providers/Microsoft.Network/virtualNetworks/partfiniti-ai-vnet 2>/dev/null || true
-
-          # Import Subnet
-          terraform import azurerm_subnet.subnet \
-            /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI/providers/Microsoft.Network/virtualNetworks/partfiniti-ai-vnet/subnets/partfiniti-ai-subnet 2>/dev/null || true
-
-          # Import NSG
-          terraform import azurerm_network_security_group.nsg \
-            /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI/providers/Microsoft.Network/networkSecurityGroups/partfiniti-ai-vm-nsg 2>/dev/null || true
-
-          # Import Public IP (if exists)
-          terraform import azurerm_public_ip.pip \
-            /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI/providers/Microsoft.Network/publicIPAddresses/LLM-uat2-pip 2>/dev/null || true
-
-          # Import NIC
-          terraform import azurerm_network_interface.nic \
-            /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI/providers/Microsoft.Network/networkInterfaces/llm-uat2-nic 2>/dev/null || true
-
-          # Import VM
-          terraform import azurerm_linux_virtual_machine.vm \
-            /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI/providers/Microsoft.Compute/virtualMachines/LLM-uat2 2>/dev/null || true
 
           set -e
 
@@ -282,11 +291,9 @@ jobs:
         run: |
           echo "Retrieving SSH private key from Key Vault..."
 
-          # Create .ssh directory if it doesn't exist
           mkdir -p ~/.ssh
           mkdir -p ./ssh-keys
 
-          # Retrieve SSH private key
           az keyvault secret show \
             --vault-name ${{ env.kv_name }} \
             --name ${{ env.ssh_secret_name }} \
@@ -295,10 +302,8 @@ jobs:
           chmod 600 ~/.ssh/llm_uat2_key
           echo "SSH private key saved to ~/.ssh/llm_uat2_key"
 
-          # Copy to artifact directory for download
           cp ~/.ssh/llm_uat2_key ./ssh-keys/llm_uat2_key
 
-          # Create connection instructions file
           cat > ./ssh-keys/CONNECTION_INSTRUCTIONS.txt << EOF
           ============================================
           VM Connection Information
@@ -319,17 +324,6 @@ jobs:
 
           SSH Connection Command (from within VNet):
             ssh -i llm_uat2_key azureuser@${{ env.vm_ip }}
-
-          ============================================
-          Additional Information
-          ============================================
-
-          To retrieve application secret from Key Vault:
-            az keyvault secret show --vault-name ${{ env.kv_name }} --name app-secret --query value -o tsv
-
-          To retrieve SSH key again from Key Vault:
-            az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > llm_uat2_key
-            chmod 600 llm_uat2_key
 
           ============================================
           EOF
@@ -353,93 +347,13 @@ jobs:
           echo "Username: azureuser"
           echo "Key Vault: ${{ env.kv_name }}"
           echo ""
-          echo "NOTE: This VM does not have a public IP address."
-          echo "You'll need to connect via:"
-          echo "  - Azure Bastion"
-          echo "  - VPN/ExpressRoute connection to the VNet"
-          echo "  - Jump box/Bastion host in the same VNet"
-          echo ""
-          echo "DOWNLOAD SSH KEY:"
-          echo "   Go to the Actions tab → This workflow run → Artifacts section"
-          echo "   Download 'vm-ssh-key' artifact (available for 7 days)"
-          echo ""
-          echo "AFTER DOWNLOAD:"
-          echo "   chmod 600 llm_uat2_key"
-          echo ""
-          echo "SSH CONNECTION COMMAND (from within VNet):"
-          echo "   ssh -i llm_uat2_key azureuser@${{ env.vm_ip }}"
-          echo ""
+          echo "Download SSH key from Artifacts section"
           echo "============================================"
 
-          # Create comprehensive GitHub Summary
-          echo "# VM Deployment Successful!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## VM Details" >> $GITHUB_STEP_SUMMARY
+          echo "# VM Deployment Successful! :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| **VM Private IP** | \`${{ env.vm_ip }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Username** | \`azureuser\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Key Vault** | \`${{ env.kv_name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **SSH Secret Name** | \`${{ env.ssh_secret_name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> **Important:** This VM does not have a public IP address. You'll need Azure Bastion, VPN, or a jump box to connect." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Download SSH Key" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. Go to the **Artifacts** section at the bottom of this workflow run" >> $GITHUB_STEP_SUMMARY
-          echo "2. Download the \`vm-ssh-key\` artifact (contains SSH key and instructions)" >> $GITHUB_STEP_SUMMARY
-          echo "3. Extract the downloaded file" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> **Important:** The artifact will be available for **7 days** only!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Connect to Your VM" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "After downloading the SSH key, run these commands:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "# Set correct permissions (REQUIRED)" >> $GITHUB_STEP_SUMMARY
-          echo "chmod 600 llm_uat2_key" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "# Connect to VM (from within VNet)" >> $GITHUB_STEP_SUMMARY
-          echo "ssh -i llm_uat2_key azureuser@${{ env.vm_ip }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Connection Methods" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Since this VM has no public IP, you can connect via:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Azure Bastion:** Use Azure Portal's Connect button" >> $GITHUB_STEP_SUMMARY
-          echo "- **VPN/ExpressRoute:** Connect to the VNet first" >> $GITHUB_STEP_SUMMARY
-          echo "- **Jump Box:** Use another VM in the same VNet as a bastion host" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Alternative: Retrieve SSH Key from Key Vault" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "If you have Azure CLI configured, you can retrieve the key directly:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > llm_uat2_key" >> $GITHUB_STEP_SUMMARY
-          echo "chmod 600 llm_uat2_key" >> $GITHUB_STEP_SUMMARY
-          echo "ssh -i llm_uat2_key azureuser@${{ env.vm_ip }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Retrieve Application Secret" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "az keyvault secret show --vault-name ${{ env.kv_name }} --name app-secret --query value -o tsv" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-      - name: Setup and Deploy Application (Optional)
-        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[deploy-app]')
-        run: |
-          echo "============================================"
-          echo "NOTE: Application deployment skipped"
-          echo "VM has no public IP - requires VNet access"
-          echo "============================================"
-          echo ""
-          echo "To deploy the application manually:"
-          echo "1. Connect to the VM via Azure Bastion or VPN"
-          echo "2. Run the deployment script on the VM"
-          echo ""
-          echo "Or uncomment the application deployment steps"
-          echo "and configure Azure Bastion/VPN access in this workflow."
