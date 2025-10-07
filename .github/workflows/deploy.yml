@@ -176,33 +176,6 @@ jobs:
             echo "Resource group '$RG_NAME' does not exist. Nothing to clean up."
           fi
 
-      - name: Delete Resource Group (Optional - Full Clean)
-        if: github.event.inputs.destroy_existing == 'true' && contains(github.event.head_commit.message, '[full-clean]')
-        run: |
-          echo "============================================"
-          echo "FULL CLEAN: Deleting entire resource group..."
-          echo "============================================"
-
-          RG_NAME="Partfiniti-AI-RG"
-
-          if az group show --name $RG_NAME &>/dev/null; then
-            echo "Deleting resource group: $RG_NAME"
-            az group delete --name $RG_NAME --yes --no-wait
-
-            echo "Waiting for resource group deletion to complete..."
-            # Wait for resource group to be deleted (max 5 minutes)
-            for i in {1..30}; do
-              if ! az group show --name $RG_NAME &>/dev/null; then
-                echo "Resource group deleted successfully!"
-                break
-              fi
-              echo "Still deleting... ($i/30)"
-              sleep 10
-            done
-          else
-            echo "Resource group does not exist."
-          fi
-
       - name: Terraform Init
         run: terraform init
 
