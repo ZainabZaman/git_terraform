@@ -296,6 +296,10 @@ jobs:
       - name: Retrieve SSH Private Key from Key Vault
         run: |
           echo "Retrieving SSH private key from Key Vault..."
+
+          # Create .ssh directory if it doesn't exist
+          mkdir -p ~/.ssh
+
           az keyvault secret show \
             --vault-name ${{ env.kv_name }} \
             --name ${{ env.ssh_secret_name }} \
