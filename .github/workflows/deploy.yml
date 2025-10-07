@@ -2,7 +2,7 @@ name: Deploy VM Infrastructure
 
 on:
   push:
-    branches: [ "terraform_basic" ]
+    branches: [ "terraform_prod" ]
   workflow_dispatch:
     inputs:
       destroy_existing:
