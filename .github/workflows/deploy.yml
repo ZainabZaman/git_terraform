@@ -201,7 +201,7 @@ jobs:
           if az group show --name Partfiniti-AI &>/dev/null; then
             echo "Found existing resource group, importing..."
             terraform import azurerm_resource_group.rg \
-              /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI 2>/dev/null || true
+              /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI 2>/dev/null || true
           fi
 
           # Check if Key Vault exists and import
@@ -209,32 +209,32 @@ jobs:
           if [ ! -z "$KV_NAME" ]; then
             echo "Found existing Key Vault: $KV_NAME"
             terraform import azurerm_key_vault.kv \
-              /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI/providers/Microsoft.KeyVault/vaults/$KV_NAME 2>/dev/null || true
+              /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI/providers/Microsoft.KeyVault/vaults/$KV_NAME 2>/dev/null || true
           fi
 
           # Import VNet
           terraform import azurerm_virtual_network.vnet \
-            /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/virtualNetworks/partfiniti-ai-vnet 2>/dev/null || true
+            /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/virtualNetworks/partfiniti-ai-vnet 2>/dev/null || true
 
           # Import Subnet
           terraform import azurerm_subnet.subnet \
-            /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/virtualNetworks/partfiniti-ai-vnet/subnets/partfiniti-ai-subnet 2>/dev/null || true
+            /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/virtualNetworks/partfiniti-ai-vnet/subnets/partfiniti-ai-subnet 2>/dev/null || true
 
           # Import NSG
           terraform import azurerm_network_security_group.nsg \
-            /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/networkSecurityGroups/partfiniti-ai-vm-nsg 2>/dev/null || true
+            /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/networkSecurityGroups/partfiniti-ai-vm-nsg 2>/dev/null || true
 
           # Import Public IP
           terraform import azurerm_public_ip.pip \
-            /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/publicIPAddresses/LLM-1-pip 2>/dev/null || true
+            /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/publicIPAddresses/LLM-1-pip 2>/dev/null || true
 
           # Import NIC
           terraform import azurerm_network_interface.nic \
-            /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/networkInterfaces/llm-1-nic 2>/dev/null || true
+            /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/networkInterfaces/llm-1-nic 2>/dev/null || true
 
           # Import VM
           terraform import azurerm_linux_virtual_machine.vm \
-            /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Compute/virtualMachines/LLM-1 2>/dev/null || true
+            /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Compute/virtualMachines/LLM-1 2>/dev/null || true
 
           set -e
 
