@@ -9,14 +9,14 @@ terraform {
 
 provider "azurerm" {
   features {}
-  subscription_id = "3c7f0ecb-9838-42e7-8964-2a82c3cc77ac"
+  subscription_id = "23957656-972a-4b93-a949-04473f8b3d4e"
 }
 
 data "azurerm_client_config" "current" {}
 
 # Create Resource Group
 resource "azurerm_resource_group" "rg" {
-  name     = "Partfiniti-AI"
+  name     = "partfiniti-AI"
   location = "eastasia"
 
   lifecycle {
@@ -149,19 +149,19 @@ resource "azurerm_network_security_group" "nsg" {
   }
 }
 
-# Public IP (without zones to match existing setup)
-resource "azurerm_public_ip" "pip" {
-  name                = "LLM-1-pip"
-  location            = local.resource_group_location
-  resource_group_name = local.resource_group_name
-  allocation_method   = "Static"  # Changed from Dynamic
-  sku                 = "Standard" # Changed from Basic
-  zones               = ["1"]     # Added zone to match VM zone
-}
+# Public IP - Optional, uncomment if needed
+# resource "azurerm_public_ip" "pip" {
+#   name                = "LLM-uat2-pip"
+#   location            = local.resource_group_location
+#   resource_group_name = local.resource_group_name
+#   allocation_method   = "Static"
+#   sku                 = "Standard"
+#   zones               = ["1"]
+# }
 
 # Network Interface
 resource "azurerm_network_interface" "nic" {
-  name                = "llm-1-nic"
+  name                = "llm-uat2-nic"
   location            = local.resource_group_location
   resource_group_name = local.resource_group_name
 
@@ -169,7 +169,8 @@ resource "azurerm_network_interface" "nic" {
     name                          = "internal"
     subnet_id                     = azurerm_subnet.subnet.id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.pip.id
+    # Uncomment if using public IP
+    # public_ip_address_id          = azurerm_public_ip.pip.id
   }
 }
 
@@ -179,14 +180,14 @@ resource "azurerm_network_interface_security_group_association" "nsg_association
   network_security_group_id = azurerm_network_security_group.nsg.id
 }
 
-# Virtual Machine - matching your existing specs
+# Virtual Machine - matching LLM-uat2 specs
 resource "azurerm_linux_virtual_machine" "vm" {
-  name                = "LLM-1"
+  name                = "LLM-uat2"
   resource_group_name = local.resource_group_name
   location            = local.resource_group_location
   size                = "Standard_D4s_v3"
   zone                = "1"
-  admin_username      = "gplaycock"
+  admin_username      = "azureuser"
 
   disable_password_authentication = true
 
@@ -195,12 +196,12 @@ resource "azurerm_linux_virtual_machine" "vm" {
   ]
 
   admin_ssh_key {
-    username   = "gplaycock"
+    username   = "azureuser"
     public_key = tls_private_key.ssh.public_key_openssh
   }
 
   os_disk {
-    name                 = "LLM-1-osdisk"
+    name                 = "LLM-uat2-osdisk"
     caching              = "ReadWrite"
     storage_account_type = "Premium_LRS"
     disk_size_gb         = 30
@@ -208,8 +209,8 @@ resource "azurerm_linux_virtual_machine" "vm" {
 
   source_image_reference {
     publisher = "canonical"
-    offer     = "0001-com-ubuntu-server-focal"
-    sku       = "20_04-lts-gen2"
+    offer     = "ubuntu-24_04-lts"
+    sku       = "server"
     version   = "latest"
   }
 
@@ -217,9 +218,9 @@ resource "azurerm_linux_virtual_machine" "vm" {
     type = "SystemAssigned"
   }
 
-  # Disabled to match existing server specs
-  secure_boot_enabled = false
-  vtpm_enabled        = false
+  # Enabled to match existing server specs
+  secure_boot_enabled = true
+  vtpm_enabled        = true
 }
 
 # Grant VM access to Key Vault
@@ -247,19 +248,26 @@ output "vm_name" {
   description = "The name of the virtual machine"
 }
 
-output "vm_public_ip" {
-  value       = azurerm_public_ip.pip.ip_address
-  description = "The public IP address of the VM"
-}
+# Uncomment if using public IP
+# output "vm_public_ip" {
+#   value       = azurerm_public_ip.pip.ip_address
+#   description = "The public IP address of the VM"
+# }
 
 output "vm_private_ip" {
   value       = azurerm_network_interface.nic.private_ip_address
   description = "The private IP address of the VM"
 }
 
+# Uncomment if using public IP
+# output "ssh_command" {
+#   value       = "ssh -i ~/.ssh/llm_uat2_key azureuser@${azurerm_public_ip.pip.ip_address}"
+#   description = "SSH command to connect to the VM"
+# }
+
 output "ssh_command" {
-  value       = "ssh -i ~/.ssh/llm1_key gplaycock@${azurerm_public_ip.pip.ip_address}"
-  description = "SSH command to connect to the VM"
+  value       = "ssh -i ~/.ssh/llm_uat2_key azureuser@${azurerm_network_interface.nic.private_ip_address}"
+  description = "SSH command to connect to the VM (using private IP)"
 }
 
 output "key_vault_name" {

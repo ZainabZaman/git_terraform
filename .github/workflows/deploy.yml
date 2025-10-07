@@ -2,7 +2,7 @@ name: Deploy VM Infrastructure
 
 on:
   push:
-    branches: [ "terraform_prod" ]
+    branches: [ "terraform_dev" ]
   workflow_dispatch:
     inputs:
       destroy_existing:
@@ -36,9 +36,9 @@ jobs:
           echo "Checking current resource group locations..."
 
           # Check if resource group exists
-          RG_LOCATION=$(az group show --name Partfiniti-AI --query location -o tsv 2>/dev/null || echo "")
+          RG_LOCATION=$(az group show --name partfiniti-AI --query location -o tsv 2>/dev/null || echo "")
           if [ ! -z "$RG_LOCATION" ]; then
-            echo "Found resource group 'Partfiniti-AI' in region: $RG_LOCATION"
+            echo "Found resource group 'partfiniti-AI' in region: $RG_LOCATION"
             echo "AZURE_REGION=$RG_LOCATION" >> $GITHUB_ENV
           else
             echo "No existing resource group found. Will use eastasia as default."
@@ -54,40 +54,40 @@ jobs:
           echo "Cleaning up existing resources..."
           echo "============================================"
 
-          RG_NAME="Partfiniti-AI"
+          RG_NAME="partfiniti-AI"
           if az group show --name $RG_NAME &>/dev/null; then
             echo "Resource group '$RG_NAME' exists. Proceeding with cleanup..."
 
             # Delete VM first (if exists) and WAIT for completion
             echo "Deleting Virtual Machine (if exists)..."
-            VM_EXISTS=$(az vm list -g $RG_NAME --query "[?name=='LLM-1'].name" -o tsv)
+            VM_EXISTS=$(az vm list -g $RG_NAME --query "[?name=='LLM-uat2'].name" -o tsv)
             if [ ! -z "$VM_EXISTS" ]; then
-              echo "Found VM: LLM-1. Deleting..."
-              az vm delete --resource-group $RG_NAME --name LLM-1 --yes
+              echo "Found VM: LLM-uat2. Deleting..."
+              az vm delete --resource-group $RG_NAME --name LLM-uat2 --yes
               echo "VM deleted successfully!"
 
               # Additional wait to ensure Azure backend updates
               echo "Waiting for Azure to update resource dependencies (15 seconds)..."
               sleep 15
             else
-              echo "No VM found named 'LLM-1'"
+              echo "No VM found named 'LLM-uat2'"
             fi
 
             # Delete Network Interface (if exists)
             echo "Deleting Network Interface (if exists)..."
-            NIC_EXISTS=$(az network nic list -g $RG_NAME --query "[?name=='llm-1-nic'].name" -o tsv)
+            NIC_EXISTS=$(az network nic list -g $RG_NAME --query "[?name=='llm-uat2-nic'].name" -o tsv)
             if [ ! -z "$NIC_EXISTS" ]; then
-              echo "Found NIC: llm-1-nic. Deleting..."
-              az network nic delete --resource-group $RG_NAME --name llm-1-nic --no-wait
+              echo "Found NIC: llm-uat2-nic. Deleting..."
+              az network nic delete --resource-group $RG_NAME --name llm-uat2-nic --no-wait
               echo "NIC deletion initiated..."
             fi
 
             # Delete Public IP (if exists)
             echo "Deleting Public IP (if exists)..."
-            PIP_EXISTS=$(az network public-ip list -g $RG_NAME --query "[?name=='LLM-1-pip'].name" -o tsv)
+            PIP_EXISTS=$(az network public-ip list -g $RG_NAME --query "[?name=='LLM-uat2-pip'].name" -o tsv)
             if [ ! -z "$PIP_EXISTS" ]; then
-              echo "Found Public IP: LLM-1-pip. Deleting..."
-              az network public-ip delete --resource-group $RG_NAME --name LLM-1-pip --no-wait
+              echo "Found Public IP: LLM-uat2-pip. Deleting..."
+              az network public-ip delete --resource-group $RG_NAME --name LLM-uat2-pip --no-wait
               echo "Public IP deletion initiated..."
             fi
 
@@ -168,7 +168,7 @@ jobs:
           echo "FULL CLEAN: Deleting entire resource group..."
           echo "============================================"
 
-          RG_NAME="Partfiniti-AI"
+          RG_NAME="partfiniti-AI"
 
           if az group show --name $RG_NAME &>/dev/null; then
             echo "Deleting resource group: $RG_NAME"
@@ -198,43 +198,43 @@ jobs:
           echo "Attempting to import any remaining resources..."
 
           # Import Resource Group (if exists)
-          if az group show --name Partfiniti-AI &>/dev/null; then
+          if az group show --name partfiniti-AI &>/dev/null; then
             echo "Found existing resource group, importing..."
             terraform import azurerm_resource_group.rg \
-              /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI 2>/dev/null || true
+              /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI 2>/dev/null || true
           fi
 
           # Check if Key Vault exists and import
-          KV_NAME=$(az keyvault list --resource-group Partfiniti-AI --query "[0].name" -o tsv 2>/dev/null || echo "")
+          KV_NAME=$(az keyvault list --resource-group partfiniti-AI --query "[0].name" -o tsv 2>/dev/null || echo "")
           if [ ! -z "$KV_NAME" ]; then
             echo "Found existing Key Vault: $KV_NAME"
             terraform import azurerm_key_vault.kv \
-              /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI/providers/Microsoft.KeyVault/vaults/$KV_NAME 2>/dev/null || true
+              /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI/providers/Microsoft.KeyVault/vaults/$KV_NAME 2>/dev/null || true
           fi
 
           # Import VNet
           terraform import azurerm_virtual_network.vnet \
-            /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/virtualNetworks/partfiniti-ai-vnet 2>/dev/null || true
+            /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI/providers/Microsoft.Network/virtualNetworks/partfiniti-ai-vnet 2>/dev/null || true
 
           # Import Subnet
           terraform import azurerm_subnet.subnet \
-            /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/virtualNetworks/partfiniti-ai-vnet/subnets/partfiniti-ai-subnet 2>/dev/null || true
+            /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI/providers/Microsoft.Network/virtualNetworks/partfiniti-ai-vnet/subnets/partfiniti-ai-subnet 2>/dev/null || true
 
           # Import NSG
           terraform import azurerm_network_security_group.nsg \
-            /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/networkSecurityGroups/partfiniti-ai-vm-nsg 2>/dev/null || true
+            /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI/providers/Microsoft.Network/networkSecurityGroups/partfiniti-ai-vm-nsg 2>/dev/null || true
 
-          # Import Public IP
+          # Import Public IP (if exists)
           terraform import azurerm_public_ip.pip \
-            /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/publicIPAddresses/LLM-1-pip 2>/dev/null || true
+            /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI/providers/Microsoft.Network/publicIPAddresses/LLM-uat2-pip 2>/dev/null || true
 
           # Import NIC
           terraform import azurerm_network_interface.nic \
-            /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/networkInterfaces/llm-1-nic 2>/dev/null || true
+            /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI/providers/Microsoft.Network/networkInterfaces/llm-uat2-nic 2>/dev/null || true
 
           # Import VM
           terraform import azurerm_linux_virtual_machine.vm \
-            /subscriptions/3c7f0ecb-9838-42e7-8964-2a82c3cc77ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Compute/virtualMachines/LLM-1 2>/dev/null || true
+            /subscriptions/23957656-972a-4b93-a949-04473f8b3d4e/resourceGroups/partfiniti-AI/providers/Microsoft.Compute/virtualMachines/LLM-uat2 2>/dev/null || true
 
           set -e
 
@@ -264,7 +264,7 @@ jobs:
       - name: Get Terraform Outputs
         id: tf_outputs
         run: |
-          VM_IP=$(terraform output -raw vm_public_ip)
+          VM_IP=$(terraform output -raw vm_private_ip)
           KV_NAME=$(terraform output -raw key_vault_name)
           SSH_SECRET=$(terraform output -raw ssh_private_key_secret_name)
 
@@ -274,7 +274,7 @@ jobs:
 
           echo "### Deployment Complete! :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**VM Public IP:** \`$VM_IP\`" >> $GITHUB_STEP_SUMMARY
+          echo "**VM Private IP:** \`$VM_IP\`" >> $GITHUB_STEP_SUMMARY
           echo "**Key Vault Name:** \`$KV_NAME\`" >> $GITHUB_STEP_SUMMARY
           echo "**SSH Key Secret:** \`$SSH_SECRET\`" >> $GITHUB_STEP_SUMMARY
 
@@ -290,13 +290,13 @@ jobs:
           az keyvault secret show \
             --vault-name ${{ env.kv_name }} \
             --name ${{ env.ssh_secret_name }} \
-            --query value -o tsv > ~/.ssh/llm1_key
+            --query value -o tsv > ~/.ssh/llm_uat2_key
 
-          chmod 600 ~/.ssh/llm1_key
-          echo "SSH private key saved to ~/.ssh/llm1_key"
+          chmod 600 ~/.ssh/llm_uat2_key
+          echo "SSH private key saved to ~/.ssh/llm_uat2_key"
 
           # Copy to artifact directory for download
-          cp ~/.ssh/llm1_key ./ssh-keys/llm1_key
+          cp ~/.ssh/llm_uat2_key ./ssh-keys/llm_uat2_key
 
           # Create connection instructions file
           cat > ./ssh-keys/CONNECTION_INSTRUCTIONS.txt << EOF
@@ -304,15 +304,21 @@ jobs:
           VM Connection Information
           ============================================
 
-          VM Public IP: ${{ env.vm_ip }}
-          Username: gplaycock
+          VM Private IP: ${{ env.vm_ip }}
+          Username: azureuser
           Key Vault: ${{ env.kv_name }}
 
-          IMPORTANT: Set correct permissions on the SSH key after download:
-            chmod 600 llm1_key
+          NOTE: This VM does not have a public IP address.
+          You'll need to connect via:
+          - Azure Bastion
+          - VPN/ExpressRoute connection to the VNet
+          - Jump box/Bastion host in the same VNet
 
-          SSH Connection Command:
-            ssh -i llm1_key gplaycock@${{ env.vm_ip }}
+          IMPORTANT: Set correct permissions on the SSH key after download:
+            chmod 600 llm_uat2_key
+
+          SSH Connection Command (from within VNet):
+            ssh -i llm_uat2_key azureuser@${{ env.vm_ip }}
 
           ============================================
           Additional Information
@@ -322,8 +328,8 @@ jobs:
             az keyvault secret show --vault-name ${{ env.kv_name }} --name app-secret --query value -o tsv
 
           To retrieve SSH key again from Key Vault:
-            az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > llm1_key
-            chmod 600 llm1_key
+            az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > llm_uat2_key
+            chmod 600 llm_uat2_key
 
           ============================================
           EOF
@@ -337,33 +343,31 @@ jobs:
           path: ./ssh-keys/
           retention-days: 7
 
-      - name: Test SSH Connection
-        run: |
-          echo "Testing SSH connection to VM..."
-          ssh-keyscan -H ${{ env.vm_ip }} >> ~/.ssh/known_hosts 2>/dev/null
-
-          # Test connection
-          ssh -i ~/.ssh/llm1_key -o StrictHostKeyChecking=no gplaycock@${{ env.vm_ip }} "echo 'SSH connection successful!'"
-
       - name: Display Connection Information
         run: |
           echo "============================================"
           echo "VM Connection Information"
           echo "============================================"
           echo ""
-          echo "VM Public IP: ${{ env.vm_ip }}"
-          echo "Username: gplaycock"
+          echo "VM Private IP: ${{ env.vm_ip }}"
+          echo "Username: azureuser"
           echo "Key Vault: ${{ env.kv_name }}"
+          echo ""
+          echo "NOTE: This VM does not have a public IP address."
+          echo "You'll need to connect via:"
+          echo "  - Azure Bastion"
+          echo "  - VPN/ExpressRoute connection to the VNet"
+          echo "  - Jump box/Bastion host in the same VNet"
           echo ""
           echo "DOWNLOAD SSH KEY:"
           echo "   Go to the Actions tab → This workflow run → Artifacts section"
           echo "   Download 'vm-ssh-key' artifact (available for 7 days)"
           echo ""
           echo "AFTER DOWNLOAD:"
-          echo "   chmod 600 llm1_key"
+          echo "   chmod 600 llm_uat2_key"
           echo ""
-          echo "SSH CONNECTION COMMAND:"
-          echo "   ssh -i llm1_key gplaycock@${{ env.vm_ip }}"
+          echo "SSH CONNECTION COMMAND (from within VNet):"
+          echo "   ssh -i llm_uat2_key azureuser@${{ env.vm_ip }}"
           echo ""
           echo "============================================"
 
@@ -374,10 +378,12 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| **VM Public IP** | \`${{ env.vm_ip }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Username** | \`gplaycock\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **VM Private IP** | \`${{ env.vm_ip }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Username** | \`azureuser\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Key Vault** | \`${{ env.kv_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **SSH Secret Name** | \`${{ env.ssh_secret_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> **Important:** This VM does not have a public IP address. You'll need Azure Bastion, VPN, or a jump box to connect." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Download SSH Key" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -393,20 +399,28 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "# Set correct permissions (REQUIRED)" >> $GITHUB_STEP_SUMMARY
-          echo "chmod 600 llm1_key" >> $GITHUB_STEP_SUMMARY
+          echo "chmod 600 llm_uat2_key" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "# Connect to VM" >> $GITHUB_STEP_SUMMARY
-          echo "ssh -i llm1_key gplaycock@${{ env.vm_ip }}" >> $GITHUB_STEP_SUMMARY
+          echo "# Connect to VM (from within VNet)" >> $GITHUB_STEP_SUMMARY
+          echo "ssh -i llm_uat2_key azureuser@${{ env.vm_ip }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Connection Methods" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Since this VM has no public IP, you can connect via:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Azure Bastion:** Use Azure Portal's Connect button" >> $GITHUB_STEP_SUMMARY
+          echo "- **VPN/ExpressRoute:** Connect to the VNet first" >> $GITHUB_STEP_SUMMARY
+          echo "- **Jump Box:** Use another VM in the same VNet as a bastion host" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Alternative: Retrieve SSH Key from Key Vault" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "If you have Azure CLI configured, you can retrieve the key directly:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > llm1_key" >> $GITHUB_STEP_SUMMARY
-          echo "chmod 600 llm1_key" >> $GITHUB_STEP_SUMMARY
-          echo "ssh -i llm1_key gplaycock@${{ env.vm_ip }}" >> $GITHUB_STEP_SUMMARY
+          echo "az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > llm_uat2_key" >> $GITHUB_STEP_SUMMARY
+          echo "chmod 600 llm_uat2_key" >> $GITHUB_STEP_SUMMARY
+          echo "ssh -i llm_uat2_key azureuser@${{ env.vm_ip }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Retrieve Application Secret" >> $GITHUB_STEP_SUMMARY
@@ -418,49 +432,14 @@ jobs:
       - name: Setup and Deploy Application (Optional)
         if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[deploy-app]')
         run: |
-          echo "Deploying application to VM..."
-
-          ssh -i ~/.ssh/llm1_key gplaycock@${{ env.vm_ip }} << 'EOF'
-            # Update system
-            sudo apt update -y
-            sudo apt install -y python3 python3-pip git screen curl jq
-
-            # Install Azure CLI
-            curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-
-            # Get access token using managed identity
-            ACCESS_TOKEN=$(curl -s -H "Metadata: true" \
-              "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net/" \
-              | jq -r '.access_token')
-
-            # Get secret from Key Vault
-            SECRET_VALUE=$(curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
-              "https://${{ env.kv_name }}.vault.azure.net/secrets/app-secret?api-version=2016-10-01" \
-              | jq -r '.value')
-
-            # Clone repository
-            cd /home/gplaycock
-            if [ -d "git_terraform" ]; then
-              cd git_terraform
-              git pull
-            else
-              git clone https://github.com/ZainabZaman/git_terraform.git
-              cd git_terraform
-            fi
-
-            # Create .env file
-            echo "MY_SECRET=$SECRET_VALUE" > .env
-
-            # Install dependencies
-            pip3 install fastapi uvicorn python-dotenv
-
-            # Kill existing session if running
-            screen -X -S fastapi_session quit 2>/dev/null || true
-
-            # Start FastAPI in screen session
-            screen -dmS fastapi_session bash -c 'cd /home/gplaycock/git_terraform && python3 -m uvicorn main:app --host 0.0.0.0 --port 8000'
-
-            echo "Application deployed successfully!"
-          EOF
-
-          echo "Application should be available at: http://${{ env.vm_ip }}:8000"
+          echo "============================================"
+          echo "NOTE: Application deployment skipped"
+          echo "VM has no public IP - requires VNet access"
+          echo "============================================"
+          echo ""
+          echo "To deploy the application manually:"
+          echo "1. Connect to the VM via Azure Bastion or VPN"
+          echo "2. Run the deployment script on the VM"
+          echo ""
+          echo "Or uncomment the application deployment steps"
+          echo "and configure Azure Bastion/VPN access in this workflow."
