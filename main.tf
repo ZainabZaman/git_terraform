@@ -149,15 +149,15 @@ resource "azurerm_network_security_group" "nsg" {
   }
 }
 
-# Public IP - Optional, uncomment if needed
-# resource "azurerm_public_ip" "pip" {
-#   name                = "LLM-uat2-pip"
-#   location            = local.resource_group_location
-#   resource_group_name = local.resource_group_name
-#   allocation_method   = "Static"
-#   sku                 = "Standard"
-#   zones               = ["1"]
-# }
+# Public IP - NOW ENABLED
+resource "azurerm_public_ip" "pip" {
+  name                = "LLM-uat2-pip"
+  location            = local.resource_group_location
+  resource_group_name = local.resource_group_name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+  zones               = ["1"]
+}
 
 # Network Interface
 resource "azurerm_network_interface" "nic" {
@@ -169,8 +169,8 @@ resource "azurerm_network_interface" "nic" {
     name                          = "internal"
     subnet_id                     = azurerm_subnet.subnet.id
     private_ip_address_allocation = "Dynamic"
-    # Uncomment if using public IP
-    # public_ip_address_id          = azurerm_public_ip.pip.id
+    # NOW ENABLED - Associate Public IP
+    public_ip_address_id          = azurerm_public_ip.pip.id
   }
 }
 
@@ -248,26 +248,21 @@ output "vm_name" {
   description = "The name of the virtual machine"
 }
 
-# Uncomment if using public IP
-# output "vm_public_ip" {
-#   value       = azurerm_public_ip.pip.ip_address
-#   description = "The public IP address of the VM"
-# }
+# NOW ENABLED - Public IP Output
+output "vm_public_ip" {
+  value       = azurerm_public_ip.pip.ip_address
+  description = "The public IP address of the VM"
+}
 
 output "vm_private_ip" {
   value       = azurerm_network_interface.nic.private_ip_address
   description = "The private IP address of the VM"
 }
 
-# Uncomment if using public IP
-# output "ssh_command" {
-#   value       = "ssh -i ~/.ssh/llm_uat2_key azureuser@${azurerm_public_ip.pip.ip_address}"
-#   description = "SSH command to connect to the VM"
-# }
-
+# NOW ENABLED - SSH Command with Public IP
 output "ssh_command" {
-  value       = "ssh -i ~/.ssh/llm_uat2_key azureuser@${azurerm_network_interface.nic.private_ip_address}"
-  description = "SSH command to connect to the VM (using private IP)"
+  value       = "ssh -i ~/.ssh/llm_uat2_key azureuser@${azurerm_public_ip.pip.ip_address}"
+  description = "SSH command to connect to the VM"
 }
 
 output "key_vault_name" {
