@@ -2,7 +2,7 @@ name: Deploy VM Infrastructure
 
 on:
   push:
-    branches: [ "terraform_basic" ]
+    branches: [ "<YOUR_BRANCH_NAME>" ] # <-- UPDATE THIS TO YOUR BRANCH NAME
   workflow_dispatch:
     inputs:
       destroy_existing:
@@ -464,7 +464,7 @@ jobs:
               cd git_terraform
               git pull
             else
-              git clone https://github.com/ZainabZaman/git_terraform.git
+              git clone <YOUR_GIT_REPO_URL> # <-- UPDATE THIS TO YOUR GIT REPO URL
               cd git_terraform
             fi
 
