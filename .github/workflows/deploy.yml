@@ -51,8 +51,8 @@ jobs:
 
           # If neither exists, try to determine allowed region
           if [ -z "$OLD_RG_LOCATION" ] && [ -z "$NEW_RG_LOCATION" ]; then
-            echo "No existing resource groups found. Will use eastus as default."
-            echo "AZURE_REGION=eastus" >> $GITHUB_ENV
+            echo "No existing resource groups found. Will use eastasia as default."
+            echo "AZURE_REGION=eastasia" >> $GITHUB_ENV
           fi
 
           echo "Selected Azure Region: $AZURE_REGION"

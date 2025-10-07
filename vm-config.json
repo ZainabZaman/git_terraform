@@ -2,11 +2,11 @@
     "dev": {
         "vm_name": "fastapi-vm-dev",
         "vm_size": "Standard_B1s",
-        "vm_location": "Japan East"
+        "vm_location": "East Asia"
     },
     "staging": {
         "vm_name": "fastapi-vm-staging",
         "vm_size": "Standard_B1s",
-        "vm_location": "Japan East"
+        "vm_location": "East Asia"
     }
 }

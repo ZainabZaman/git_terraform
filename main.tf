@@ -16,7 +16,7 @@ data "azurerm_client_config" "current" {}
 # Create Resource Group
 resource "azurerm_resource_group" "rg" {
   name     = "Partfiniti-AI-RG"
-  location = "eastus"
+  location = "eastasia"
 
   lifecycle {
     prevent_destroy = false
