@@ -35,23 +35,13 @@ jobs:
         run: |
           echo "Checking current resource group locations..."
 
-          # Check if old RG exists
-          OLD_RG_LOCATION=$(az group show --name Partfiniti-AI --query location -o tsv 2>/dev/null || echo "")
-          if [ ! -z "$OLD_RG_LOCATION" ]; then
-            echo "Found OLD resource group 'Partfiniti-AI' in region: $OLD_RG_LOCATION"
-            echo "AZURE_REGION=$OLD_RG_LOCATION" >> $GITHUB_ENV
-          fi
-
-          # Check if new RG exists
-          NEW_RG_LOCATION=$(az group show --name Partfiniti-AI-RG --query location -o tsv 2>/dev/null || echo "")
-          if [ ! -z "$NEW_RG_LOCATION" ]; then
-            echo "Found NEW resource group 'Partfiniti-AI-RG' in region: $NEW_RG_LOCATION"
-            echo "AZURE_REGION=$NEW_RG_LOCATION" >> $GITHUB_ENV
-          fi
-
-          # If neither exists, try to determine allowed region
-          if [ -z "$OLD_RG_LOCATION" ] && [ -z "$NEW_RG_LOCATION" ]; then
-            echo "No existing resource groups found. Will use eastasia as default."
+          # Check if resource group exists
+          RG_LOCATION=$(az group show --name Partfiniti-AI --query location -o tsv 2>/dev/null || echo "")
+          if [ ! -z "$RG_LOCATION" ]; then
+            echo "Found resource group 'Partfiniti-AI' in region: $RG_LOCATION"
+            echo "AZURE_REGION=$RG_LOCATION" >> $GITHUB_ENV
+          else
+            echo "No existing resource group found. Will use eastasia as default."
             echo "AZURE_REGION=eastasia" >> $GITHUB_ENV
           fi
 
@@ -64,50 +54,40 @@ jobs:
           echo "Cleaning up existing resources..."
           echo "============================================"
 
-          # Clean up OLD resource group (Partfiniti-AI)
-          OLD_RG_NAME="Partfiniti-AI"
-          if az group show --name $OLD_RG_NAME &>/dev/null; then
-            echo "Found OLD resource group '$OLD_RG_NAME'. Deleting completely..."
-            az group delete --name $OLD_RG_NAME --yes --no-wait
-            echo "OLD resource group deletion initiated..."
-            sleep 30
-          fi
-
-          # Clean up NEW resource group (Partfiniti-AI-RG)
-          RG_NAME="Partfiniti-AI-RG"
+          RG_NAME="Partfiniti-AI"
           if az group show --name $RG_NAME &>/dev/null; then
             echo "Resource group '$RG_NAME' exists. Proceeding with cleanup..."
 
             # Delete VM first (if exists) and WAIT for completion
             echo "Deleting Virtual Machine (if exists)..."
-            VM_EXISTS=$(az vm list -g $RG_NAME --query "[?name=='partfiniti-ai-vm'].name" -o tsv)
+            VM_EXISTS=$(az vm list -g $RG_NAME --query "[?name=='LLM-1'].name" -o tsv)
             if [ ! -z "$VM_EXISTS" ]; then
-              echo "Found VM: partfiniti-ai-vm. Deleting..."
-              az vm delete --resource-group $RG_NAME --name partfiniti-ai-vm --yes
+              echo "Found VM: LLM-1. Deleting..."
+              az vm delete --resource-group $RG_NAME --name LLM-1 --yes
               echo "VM deleted successfully!"
 
               # Additional wait to ensure Azure backend updates
               echo "Waiting for Azure to update resource dependencies (15 seconds)..."
               sleep 15
             else
-              echo "No VM found named 'partfiniti-ai-vm'"
+              echo "No VM found named 'LLM-1'"
             fi
 
             # Delete Network Interface (if exists)
             echo "Deleting Network Interface (if exists)..."
-            NIC_EXISTS=$(az network nic list -g $RG_NAME --query "[?name=='partfiniti-ai-vm-nic'].name" -o tsv)
+            NIC_EXISTS=$(az network nic list -g $RG_NAME --query "[?name=='llm-1-nic'].name" -o tsv)
             if [ ! -z "$NIC_EXISTS" ]; then
-              echo "Found NIC: partfiniti-ai-vm-nic. Deleting..."
-              az network nic delete --resource-group $RG_NAME --name partfiniti-ai-vm-nic --no-wait
+              echo "Found NIC: llm-1-nic. Deleting..."
+              az network nic delete --resource-group $RG_NAME --name llm-1-nic --no-wait
               echo "NIC deletion initiated..."
             fi
 
             # Delete Public IP (if exists)
             echo "Deleting Public IP (if exists)..."
-            PIP_EXISTS=$(az network public-ip list -g $RG_NAME --query "[?name=='partfiniti-ai-vm-pip'].name" -o tsv)
+            PIP_EXISTS=$(az network public-ip list -g $RG_NAME --query "[?name=='LLM-1-pip'].name" -o tsv)
             if [ ! -z "$PIP_EXISTS" ]; then
-              echo "Found Public IP: partfiniti-ai-vm-pip. Deleting..."
-              az network public-ip delete --resource-group $RG_NAME --name partfiniti-ai-vm-pip --no-wait
+              echo "Found Public IP: LLM-1-pip. Deleting..."
+              az network public-ip delete --resource-group $RG_NAME --name LLM-1-pip --no-wait
               echo "Public IP deletion initiated..."
             fi
 
@@ -188,7 +168,7 @@ jobs:
           echo "FULL CLEAN: Deleting entire resource group..."
           echo "============================================"
 
-          RG_NAME="Partfiniti-AI-RG"
+          RG_NAME="Partfiniti-AI"
 
           if az group show --name $RG_NAME &>/dev/null; then
             echo "Deleting resource group: $RG_NAME"
@@ -218,43 +198,43 @@ jobs:
           echo "Attempting to import any remaining resources..."
 
           # Import Resource Group (if exists)
-          if az group show --name Partfiniti-AI-RG &>/dev/null; then
+          if az group show --name Partfiniti-AI &>/dev/null; then
             echo "Found existing resource group, importing..."
             terraform import azurerm_resource_group.rg \
-              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI-RG 2>/dev/null || true
+              /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI 2>/dev/null || true
           fi
 
           # Check if Key Vault exists and import
-          KV_NAME=$(az keyvault list --resource-group Partfiniti-AI-RG --query "[0].name" -o tsv 2>/dev/null || echo "")
+          KV_NAME=$(az keyvault list --resource-group Partfiniti-AI --query "[0].name" -o tsv 2>/dev/null || echo "")
           if [ ! -z "$KV_NAME" ]; then
             echo "Found existing Key Vault: $KV_NAME"
             terraform import azurerm_key_vault.kv \
-              /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI-RG/providers/Microsoft.KeyVault/vaults/$KV_NAME 2>/dev/null || true
+              /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI/providers/Microsoft.KeyVault/vaults/$KV_NAME 2>/dev/null || true
           fi
 
           # Import VNet
           terraform import azurerm_virtual_network.vnet \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI-RG/providers/Microsoft.Network/virtualNetworks/partfiniti-ai-vnet 2>/dev/null || true
+            /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/virtualNetworks/partfiniti-ai-vnet 2>/dev/null || true
 
           # Import Subnet
           terraform import azurerm_subnet.subnet \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI-RG/providers/Microsoft.Network/virtualNetworks/partfiniti-ai-vnet/subnets/partfiniti-ai-subnet 2>/dev/null || true
+            /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/virtualNetworks/partfiniti-ai-vnet/subnets/partfiniti-ai-subnet 2>/dev/null || true
 
           # Import NSG
           terraform import azurerm_network_security_group.nsg \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI-RG/providers/Microsoft.Network/networkSecurityGroups/partfiniti-ai-vm-nsg 2>/dev/null || true
+            /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/networkSecurityGroups/partfiniti-ai-vm-nsg 2>/dev/null || true
 
           # Import Public IP
           terraform import azurerm_public_ip.pip \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI-RG/providers/Microsoft.Network/publicIPAddresses/partfiniti-ai-vm-pip 2>/dev/null || true
+            /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/publicIPAddresses/LLM-1-pip 2>/dev/null || true
 
           # Import NIC
           terraform import azurerm_network_interface.nic \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI-RG/providers/Microsoft.Network/networkInterfaces/partfiniti-ai-vm-nic 2>/dev/null || true
+            /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Network/networkInterfaces/llm-1-nic 2>/dev/null || true
 
           # Import VM
           terraform import azurerm_linux_virtual_machine.vm \
-            /subscriptions/${{ fromJson(secrets.AZURE_CREDENTIALS).subscriptionId }}/resourceGroups/Partfiniti-AI-RG/providers/Microsoft.Compute/virtualMachines/partfiniti-ai-vm 2>/dev/null || true
+            /subscriptions/5a13ffbf-4773-4504-a103-d233b6fba6ac/resourceGroups/Partfiniti-AI/providers/Microsoft.Compute/virtualMachines/LLM-1 2>/dev/null || true
 
           set -e
 
@@ -310,13 +290,13 @@ jobs:
           az keyvault secret show \
             --vault-name ${{ env.kv_name }} \
             --name ${{ env.ssh_secret_name }} \
-            --query value -o tsv > ~/.ssh/partfiniti_ai_key
+            --query value -o tsv > ~/.ssh/llm1_key
 
-          chmod 600 ~/.ssh/partfiniti_ai_key
-          echo "SSH private key saved to ~/.ssh/partfiniti_ai_key"
+          chmod 600 ~/.ssh/llm1_key
+          echo "SSH private key saved to ~/.ssh/llm1_key"
 
           # Copy to artifact directory for download
-          cp ~/.ssh/partfiniti_ai_key ./ssh-keys/partfiniti_ai_key
+          cp ~/.ssh/llm1_key ./ssh-keys/llm1_key
 
           # Create connection instructions file
           cat > ./ssh-keys/CONNECTION_INSTRUCTIONS.txt << EOF
@@ -325,14 +305,14 @@ jobs:
           ============================================
 
           VM Public IP: ${{ env.vm_ip }}
-          Username: azureuser
+          Username: gplaycock
           Key Vault: ${{ env.kv_name }}
 
           IMPORTANT: Set correct permissions on the SSH key after download:
-            chmod 600 partfiniti_ai_key
+            chmod 600 llm1_key
 
           SSH Connection Command:
-            ssh -i partfiniti_ai_key azureuser@${{ env.vm_ip }}
+            ssh -i llm1_key gplaycock@${{ env.vm_ip }}
 
           ============================================
           Additional Information
@@ -342,8 +322,8 @@ jobs:
             az keyvault secret show --vault-name ${{ env.kv_name }} --name app-secret --query value -o tsv
 
           To retrieve SSH key again from Key Vault:
-            az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > partfiniti_ai_key
-            chmod 600 partfiniti_ai_key
+            az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > llm1_key
+            chmod 600 llm1_key
 
           ============================================
           EOF
@@ -363,7 +343,7 @@ jobs:
           ssh-keyscan -H ${{ env.vm_ip }} >> ~/.ssh/known_hosts 2>/dev/null
 
           # Test connection
-          ssh -i ~/.ssh/partfiniti_ai_key -o StrictHostKeyChecking=no azureuser@${{ env.vm_ip }} "echo 'SSH connection successful!'"
+          ssh -i ~/.ssh/llm1_key -o StrictHostKeyChecking=no gplaycock@${{ env.vm_ip }} "echo 'SSH connection successful!'"
 
       - name: Display Connection Information
         run: |
@@ -372,7 +352,7 @@ jobs:
           echo "============================================"
           echo ""
           echo "VM Public IP: ${{ env.vm_ip }}"
-          echo "Username: azureuser"
+          echo "Username: gplaycock"
           echo "Key Vault: ${{ env.kv_name }}"
           echo ""
           echo "DOWNLOAD SSH KEY:"
@@ -380,10 +360,10 @@ jobs:
           echo "   Download 'vm-ssh-key' artifact (available for 7 days)"
           echo ""
           echo "AFTER DOWNLOAD:"
-          echo "   chmod 600 partfiniti_ai_key"
+          echo "   chmod 600 llm1_key"
           echo ""
           echo "SSH CONNECTION COMMAND:"
-          echo "   ssh -i partfiniti_ai_key azureuser@${{ env.vm_ip }}"
+          echo "   ssh -i llm1_key gplaycock@${{ env.vm_ip }}"
           echo ""
           echo "============================================"
 
@@ -395,7 +375,7 @@ jobs:
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| **VM Public IP** | \`${{ env.vm_ip }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Username** | \`azureuser\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Username** | \`gplaycock\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Key Vault** | \`${{ env.kv_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **SSH Secret Name** | \`${{ env.ssh_secret_name }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -413,10 +393,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "# Set correct permissions (REQUIRED)" >> $GITHUB_STEP_SUMMARY
-          echo "chmod 600 partfiniti_ai_key" >> $GITHUB_STEP_SUMMARY
+          echo "chmod 600 llm1_key" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Connect to VM" >> $GITHUB_STEP_SUMMARY
-          echo "ssh -i partfiniti_ai_key azureuser@${{ env.vm_ip }}" >> $GITHUB_STEP_SUMMARY
+          echo "ssh -i llm1_key gplaycock@${{ env.vm_ip }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Alternative: Retrieve SSH Key from Key Vault" >> $GITHUB_STEP_SUMMARY
@@ -424,9 +404,9 @@ jobs:
           echo "If you have Azure CLI configured, you can retrieve the key directly:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > partfiniti_ai_key" >> $GITHUB_STEP_SUMMARY
-          echo "chmod 600 partfiniti_ai_key" >> $GITHUB_STEP_SUMMARY
-          echo "ssh -i partfiniti_ai_key azureuser@${{ env.vm_ip }}" >> $GITHUB_STEP_SUMMARY
+          echo "az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > llm1_key" >> $GITHUB_STEP_SUMMARY
+          echo "chmod 600 llm1_key" >> $GITHUB_STEP_SUMMARY
+          echo "ssh -i llm1_key gplaycock@${{ env.vm_ip }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Retrieve Application Secret" >> $GITHUB_STEP_SUMMARY
@@ -440,7 +420,7 @@ jobs:
         run: |
           echo "Deploying application to VM..."
 
-          ssh -i ~/.ssh/partfiniti_ai_key azureuser@${{ env.vm_ip }} << 'EOF'
+          ssh -i ~/.ssh/llm1_key gplaycock@${{ env.vm_ip }} << 'EOF'
             # Update system
             sudo apt update -y
             sudo apt install -y python3 python3-pip git screen curl jq
@@ -459,7 +439,7 @@ jobs:
               | jq -r '.value')
 
             # Clone repository
-            cd /home/azureuser
+            cd /home/gplaycock
             if [ -d "git_terraform" ]; then
               cd git_terraform
               git pull
@@ -478,7 +458,7 @@ jobs:
             screen -X -S fastapi_session quit 2>/dev/null || true
 
             # Start FastAPI in screen session
-            screen -dmS fastapi_session bash -c 'cd /home/azureuser/git_terraform && python3 -m uvicorn main:app --host 0.0.0.0 --port 8000'
+            screen -dmS fastapi_session bash -c 'cd /home/gplaycock/git_terraform && python3 -m uvicorn main:app --host 0.0.0.0 --port 8000'
 
             echo "Application deployed successfully!"
           EOF

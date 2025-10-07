@@ -9,13 +9,14 @@ terraform {
 
 provider "azurerm" {
   features {}
+  subscription_id = "5a13ffbf-4773-4504-a103-d233b6fba6ac"
 }
 
 data "azurerm_client_config" "current" {}
 
 # Create Resource Group
 resource "azurerm_resource_group" "rg" {
-  name     = "Partfiniti-AI-RG"
+  name     = "Partfiniti-AI"
   location = "eastasia"
 
   lifecycle {
@@ -148,19 +149,18 @@ resource "azurerm_network_security_group" "nsg" {
   }
 }
 
-# Public IP
+# Public IP (without zones to match existing setup)
 resource "azurerm_public_ip" "pip" {
-  name                = "partfiniti-ai-vm-pip"
+  name                = "LLM-1-pip"
   location            = local.resource_group_location
   resource_group_name = local.resource_group_name
-  allocation_method   = "Static"
-  sku                 = "Standard"
-  zones               = ["1"]
+  allocation_method   = "Dynamic"
+  sku                 = "Basic"
 }
 
 # Network Interface
 resource "azurerm_network_interface" "nic" {
-  name                = "partfiniti-ai-vm-nic"
+  name                = "llm-1-nic"
   location            = local.resource_group_location
   resource_group_name = local.resource_group_name
 
@@ -178,14 +178,14 @@ resource "azurerm_network_interface_security_group_association" "nsg_association
   network_security_group_id = azurerm_network_security_group.nsg.id
 }
 
-# Virtual Machine
+# Virtual Machine - matching your existing specs
 resource "azurerm_linux_virtual_machine" "vm" {
-  name                = "partfiniti-ai-vm"
+  name                = "LLM-1"
   resource_group_name = local.resource_group_name
   location            = local.resource_group_location
   size                = "Standard_D4s_v3"
   zone                = "1"
-  admin_username      = "azureuser"
+  admin_username      = "gplaycock"
 
   disable_password_authentication = true
 
@@ -194,19 +194,19 @@ resource "azurerm_linux_virtual_machine" "vm" {
   ]
 
   admin_ssh_key {
-    username   = "azureuser"
+    username   = "gplaycock"
     public_key = tls_private_key.ssh.public_key_openssh
   }
 
   os_disk {
-    name                 = "partfiniti-ai-vm-osdisk"
+    name                 = "LLM-1-osdisk"
     caching              = "ReadWrite"
-    storage_account_type = "StandardSSD_LRS"
-    disk_size_gb         = 64
+    storage_account_type = "Premium_LRS"
+    disk_size_gb         = 30
   }
 
   source_image_reference {
-    publisher = "Canonical"
+    publisher = "canonical"
     offer     = "0001-com-ubuntu-server-focal"
     sku       = "20_04-lts-gen2"
     version   = "latest"
@@ -216,9 +216,9 @@ resource "azurerm_linux_virtual_machine" "vm" {
     type = "SystemAssigned"
   }
 
-  # Enable secure boot and vTPM
-  secure_boot_enabled = true
-  vtpm_enabled        = true
+  # Disabled to match existing server specs
+  secure_boot_enabled = false
+  vtpm_enabled        = false
 }
 
 # Grant VM access to Key Vault
@@ -257,7 +257,7 @@ output "vm_private_ip" {
 }
 
 output "ssh_command" {
-  value       = "ssh -i ~/.ssh/partfiniti_ai_key azureuser@${azurerm_public_ip.pip.ip_address}"
+  value       = "ssh -i ~/.ssh/llm1_key gplaycock@${azurerm_public_ip.pip.ip_address}"
   description = "SSH command to connect to the VM"
 }
 
