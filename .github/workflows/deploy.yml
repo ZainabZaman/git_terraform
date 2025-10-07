@@ -31,6 +31,183 @@ jobs:
         with:
           terraform_wrapper: false
 
+      - name: Check Allowed Azure Regions
+        run: |
+          echo "Checking current resource group locations..."
+
+          # Check if old RG exists
+          OLD_RG_LOCATION=$(az group show --name Partfiniti-AI --query location -o tsv 2>/dev/null || echo "")
+          if [ ! -z "$OLD_RG_LOCATION" ]; then
+            echo "Found OLD resource group 'Partfiniti-AI' in region: $OLD_RG_LOCATION"
+            echo "AZURE_REGION=$OLD_RG_LOCATION" >> $GITHUB_ENV
+          fi
+
+          # Check if new RG exists
+          NEW_RG_LOCATION=$(az group show --name Partfiniti-AI-RG --query location -o tsv 2>/dev/null || echo "")
+          if [ ! -z "$NEW_RG_LOCATION" ]; then
+            echo "Found NEW resource group 'Partfiniti-AI-RG' in region: $NEW_RG_LOCATION"
+            echo "AZURE_REGION=$NEW_RG_LOCATION" >> $GITHUB_ENV
+          fi
+
+          # If neither exists, try to determine allowed region
+          if [ -z "$OLD_RG_LOCATION" ] && [ -z "$NEW_RG_LOCATION" ]; then
+            echo "No existing resource groups found. Will use eastasia as default."
+            echo "AZURE_REGION=eastasia" >> $GITHUB_ENV
+          fi
+
+          echo "Selected Azure Region: $AZURE_REGION"
+
+      - name: Clean Up Existing Deployments
+        if: github.event.inputs.destroy_existing == 'true' || github.event_name == 'push'
+        run: |
+          echo "============================================"
+          echo "Cleaning up existing resources..."
+          echo "============================================"
+
+          # Clean up OLD resource group (Partfiniti-AI)
+          OLD_RG_NAME="Partfiniti-AI"
+          if az group show --name $OLD_RG_NAME &>/dev/null; then
+            echo "Found OLD resource group '$OLD_RG_NAME'. Deleting completely..."
+            az group delete --name $OLD_RG_NAME --yes --no-wait
+            echo "OLD resource group deletion initiated..."
+            sleep 30
+          fi
+
+          # Clean up NEW resource group (Partfiniti-AI-RG)
+          RG_NAME="Partfiniti-AI-RG"
+          if az group show --name $RG_NAME &>/dev/null; then
+            echo "Resource group '$RG_NAME' exists. Proceeding with cleanup..."
+
+            # Delete VM first (if exists) and WAIT for completion
+            echo "Deleting Virtual Machine (if exists)..."
+            VM_EXISTS=$(az vm list -g $RG_NAME --query "[?name=='partfiniti-ai-vm'].name" -o tsv)
+            if [ ! -z "$VM_EXISTS" ]; then
+              echo "Found VM: partfiniti-ai-vm. Deleting..."
+              az vm delete --resource-group $RG_NAME --name partfiniti-ai-vm --yes
+              echo "VM deleted successfully!"
+
+              # Additional wait to ensure Azure backend updates
+              echo "Waiting for Azure to update resource dependencies (15 seconds)..."
+              sleep 15
+            else
+              echo "No VM found named 'partfiniti-ai-vm'"
+            fi
+
+            # Delete Network Interface (if exists)
+            echo "Deleting Network Interface (if exists)..."
+            NIC_EXISTS=$(az network nic list -g $RG_NAME --query "[?name=='partfiniti-ai-vm-nic'].name" -o tsv)
+            if [ ! -z "$NIC_EXISTS" ]; then
+              echo "Found NIC: partfiniti-ai-vm-nic. Deleting..."
+              az network nic delete --resource-group $RG_NAME --name partfiniti-ai-vm-nic --no-wait
+              echo "NIC deletion initiated..."
+            fi
+
+            # Delete Public IP (if exists)
+            echo "Deleting Public IP (if exists)..."
+            PIP_EXISTS=$(az network public-ip list -g $RG_NAME --query "[?name=='partfiniti-ai-vm-pip'].name" -o tsv)
+            if [ ! -z "$PIP_EXISTS" ]; then
+              echo "Found Public IP: partfiniti-ai-vm-pip. Deleting..."
+              az network public-ip delete --resource-group $RG_NAME --name partfiniti-ai-vm-pip --no-wait
+              echo "Public IP deletion initiated..."
+            fi
+
+            # Delete NSG (if exists)
+            echo "Deleting Network Security Group (if exists)..."
+            NSG_EXISTS=$(az network nsg list -g $RG_NAME --query "[?name=='partfiniti-ai-vm-nsg'].name" -o tsv)
+            if [ ! -z "$NSG_EXISTS" ]; then
+              echo "Found NSG: partfiniti-ai-vm-nsg. Deleting..."
+              az network nsg delete --resource-group $RG_NAME --name partfiniti-ai-vm-nsg --no-wait
+              echo "NSG deletion initiated..."
+            fi
+
+            # Delete Subnet (if exists and not in use)
+            echo "Deleting Subnet (if exists)..."
+            SUBNET_EXISTS=$(az network vnet subnet list -g $RG_NAME --vnet-name partfiniti-ai-vnet --query "[?name=='partfiniti-ai-subnet'].name" -o tsv 2>/dev/null || echo "")
+            if [ ! -z "$SUBNET_EXISTS" ]; then
+              echo "Found Subnet: partfiniti-ai-subnet. Will be deleted with VNet..."
+            fi
+
+            # Wait for network resources to be deleted
+            echo "Waiting for network resources to be deleted (30 seconds)..."
+            sleep 30
+
+            # Delete VNet (if exists)
+            echo "Deleting Virtual Network (if exists)..."
+            VNET_EXISTS=$(az network vnet list -g $RG_NAME --query "[?name=='partfiniti-ai-vnet'].name" -o tsv)
+            if [ ! -z "$VNET_EXISTS" ]; then
+              echo "Found VNet: partfiniti-ai-vnet. Deleting..."
+              az network vnet delete --resource-group $RG_NAME --name partfiniti-ai-vnet --no-wait
+              echo "VNet deletion initiated..."
+            fi
+
+            # Delete Key Vault (if exists) - with purge protection handling
+            echo "Deleting Key Vault (if exists)..."
+            KV_LIST=$(az keyvault list -g $RG_NAME --query "[].name" -o tsv)
+            for KV_NAME in $KV_LIST; do
+              if [[ $KV_NAME == partfiniti-ai-kv-* ]]; then
+                echo "Found Key Vault: $KV_NAME. Deleting..."
+                az keyvault delete --name $KV_NAME --resource-group $RG_NAME --no-wait
+
+                # Purge the key vault to allow recreation with same name
+                echo "Purging Key Vault: $KV_NAME..."
+                az keyvault purge --name $KV_NAME --no-wait 2>/dev/null || echo "Key Vault purge initiated or already purged"
+              fi
+            done
+
+            echo ""
+            echo "Waiting for all deletions to complete (60 seconds)..."
+            sleep 60
+
+            # Now delete the entire resource group to ensure clean slate
+            echo "Deleting entire resource group for clean slate..."
+            az group delete --name $RG_NAME --yes --no-wait
+
+            # Wait for RG deletion
+            echo "Waiting for resource group deletion (up to 2 minutes)..."
+            for i in {1..24}; do
+              if ! az group show --name $RG_NAME &>/dev/null; then
+                echo "Resource group deleted successfully!"
+                break
+              fi
+              echo "Still deleting... ($i/24)"
+              sleep 5
+            done
+
+            echo ""
+            echo "============================================"
+            echo "Cleanup completed!"
+            echo "============================================"
+          else
+            echo "Resource group '$RG_NAME' does not exist. Nothing to clean up."
+          fi
+
+      - name: Delete Resource Group (Optional - Full Clean)
+        if: github.event.inputs.destroy_existing == 'true' && contains(github.event.head_commit.message, '[full-clean]')
+        run: |
+          echo "============================================"
+          echo "FULL CLEAN: Deleting entire resource group..."
+          echo "============================================"
+
+          RG_NAME="Partfiniti-AI-RG"
+
+          if az group show --name $RG_NAME &>/dev/null; then
+            echo "Deleting resource group: $RG_NAME"
+            az group delete --name $RG_NAME --yes --no-wait
+
+            echo "Waiting for resource group deletion to complete..."
+            # Wait for resource group to be deleted (max 5 minutes)
+            for i in {1..30}; do
+              if ! az group show --name $RG_NAME &>/dev/null; then
+                echo "Resource group deleted successfully!"
+                break
+              fi
+              echo "Still deleting... ($i/30)"
+              sleep 10
+            done
+          else
+            echo "Resource group does not exist."
+          fi
+
       - name: Terraform Init
         run: terraform init
 
@@ -194,32 +371,68 @@ jobs:
           echo "VM Connection Information"
           echo "============================================"
           echo ""
-          echo "Public IP: ${{ env.vm_ip }}"
+          echo "VM Public IP: ${{ env.vm_ip }}"
           echo "Username: azureuser"
           echo "Key Vault: ${{ env.kv_name }}"
           echo ""
-          echo "To connect to your VM:"
-          echo "1. Retrieve SSH key:"
-          echo "   az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > ~/.ssh/partfiniti_ai_key"
-          echo "   chmod 600 ~/.ssh/partfiniti_ai_key"
+          echo "DOWNLOAD SSH KEY:"
+          echo "   Go to the Actions tab → This workflow run → Artifacts section"
+          echo "   Download 'vm-ssh-key' artifact (available for 7 days)"
           echo ""
-          echo "2. Connect via SSH:"
-          echo "   ssh -i ~/.ssh/partfiniti_ai_key azureuser@${{ env.vm_ip }}"
+          echo "AFTER DOWNLOAD:"
+          echo "   chmod 600 partfiniti_ai_key"
           echo ""
-          echo "To retrieve application secret:"
-          echo "   az keyvault secret show --vault-name ${{ env.kv_name }} --name app-secret --query value -o tsv"
+          echo "SSH CONNECTION COMMAND:"
+          echo "   ssh -i partfiniti_ai_key azureuser@${{ env.vm_ip }}"
+          echo ""
           echo "============================================"
 
-          # Also save to GitHub Summary
-          echo "## SSH Connection Instructions" >> $GITHUB_STEP_SUMMARY
+          # Create comprehensive GitHub Summary
+          echo "# VM Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## VM Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **VM Public IP** | \`${{ env.vm_ip }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Username** | \`azureuser\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Key Vault** | \`${{ env.kv_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **SSH Secret Name** | \`${{ env.ssh_secret_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Download SSH Key" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. Go to the **Artifacts** section at the bottom of this workflow run" >> $GITHUB_STEP_SUMMARY
+          echo "2. Download the \`vm-ssh-key\` artifact (contains SSH key and instructions)" >> $GITHUB_STEP_SUMMARY
+          echo "3. Extract the downloaded file" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> **Important:** The artifact will be available for **7 days** only!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Connect to Your VM" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "After downloading the SSH key, run these commands:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "# Retrieve SSH private key" >> $GITHUB_STEP_SUMMARY
-          echo "az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > ~/.ssh/partfiniti_ai_key" >> $GITHUB_STEP_SUMMARY
-          echo "chmod 600 ~/.ssh/partfiniti_ai_key" >> $GITHUB_STEP_SUMMARY
+          echo "# Set correct permissions (REQUIRED)" >> $GITHUB_STEP_SUMMARY
+          echo "chmod 600 partfiniti_ai_key" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Connect to VM" >> $GITHUB_STEP_SUMMARY
-          echo "ssh -i ~/.ssh/partfiniti_ai_key azureuser@${{ env.vm_ip }}" >> $GITHUB_STEP_SUMMARY
+          echo "ssh -i partfiniti_ai_key azureuser@${{ env.vm_ip }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Alternative: Retrieve SSH Key from Key Vault" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "If you have Azure CLI configured, you can retrieve the key directly:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "az keyvault secret show --vault-name ${{ env.kv_name }} --name ${{ env.ssh_secret_name }} --query value -o tsv > partfiniti_ai_key" >> $GITHUB_STEP_SUMMARY
+          echo "chmod 600 partfiniti_ai_key" >> $GITHUB_STEP_SUMMARY
+          echo "ssh -i partfiniti_ai_key azureuser@${{ env.vm_ip }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Retrieve Application Secret" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "az keyvault secret show --vault-name ${{ env.kv_name }} --name app-secret --query value -o tsv" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Setup and Deploy Application (Optional)
